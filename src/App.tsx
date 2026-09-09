@@ -483,11 +483,6 @@ function App() {
     "home"
   );
 
-  /*
-    受付で使う3画面・管理メニュー・イベント管理は、
-    ブラウザ全体がスクロールしないよう表示領域に固定します。
-    イベント一覧など、必要な場所だけ内側でスクロールします。
-  */
   useEffect(() => {
     const shouldLockViewport =
       page === "home" ||
@@ -540,19 +535,11 @@ function App() {
     setEventSyncError,
   ] = useState("");
 
-  /*
-    自動終了処理を同じ端末内で
-    何度も実行しないために使います。
-  */
   const endingEventIdsRef =
     useRef(
       new Set<string>()
     );
 
-  /*
-    Firestoreからイベント一覧を
-    リアルタイム受信します。
-  */
   useEffect(() => {
     allowEventDataMigrationRef.current =
       navigator.onLine &&
@@ -705,15 +692,10 @@ function App() {
               }
             );
         },
-
         (error) => {
-          setEventSyncReady(
-            true
-          );
-
+          setEventSyncReady(true);
           setEventSyncError(
-            hasUsableEventsRef.current ||
-            navigator.onLine === false
+            hasUsableEventsRef.current || navigator.onLine === false
               ? ""
               : error.message
           );
@@ -722,10 +704,7 @@ function App() {
 
     const unsubscribeCurrentEvent =
       subscribeToCurrentEventId(
-        (
-          currentEventId,
-          fromCache
-        ) => {
+        (currentEventId, fromCache) => {
           if (
             fromCache &&
             currentEventId === null &&
@@ -737,25 +716,16 @@ function App() {
           hasCurrentEventRef.current =
             currentEventId !== null;
 
-          setCurrentEventSyncReady(
-            true
-          );
+          setCurrentEventSyncReady(true);
 
-          setEventStore(
-            (currentStore) => ({
-              ...currentStore,
-              currentEventId,
-            })
-          );
+          setEventStore((currentStore) => ({
+            ...currentStore,
+            currentEventId,
+          }));
 
           try {
-            if (
-              currentEventId ===
-              null
-            ) {
-              localStorage.removeItem(
-                CURRENT_EVENT_ID_STORAGE_KEY
-              );
+            if (currentEventId === null) {
+              localStorage.removeItem(CURRENT_EVENT_ID_STORAGE_KEY);
             } else {
               localStorage.setItem(
                 CURRENT_EVENT_ID_STORAGE_KEY,
@@ -769,15 +739,10 @@ function App() {
             );
           }
         },
-
         (error) => {
-          setCurrentEventSyncReady(
-            true
-          );
-
+          setCurrentEventSyncReady(true);
           setEventSyncError(
-            hasUsableEventsRef.current ||
-            navigator.onLine === false
+            hasUsableEventsRef.current || navigator.onLine === false
               ? ""
               : error.message
           );
@@ -786,60 +751,41 @@ function App() {
 
     return () => {
       active = false;
-
       unsubscribeEvents();
       unsubscribeCurrentEvent();
     };
   }, [isMemberDevice]);
 
-  const eventsById =
-    useMemo(
-      () =>
-        new Map(
-          eventStore.events.map(
-            (event) => [
-              event.id,
-              event,
-            ]
-          )
-        ),
-      [eventStore.events]
-    );
+  const eventsById = useMemo(
+    () =>
+      new Map(
+        eventStore.events.map((event) => [
+          event.id,
+          event,
+        ])
+      ),
+    [eventStore.events]
+  );
 
   const currentEvent =
-    eventStore.currentEventId ===
-    null
+    eventStore.currentEventId === null
       ? null
-      : eventsById.get(
-          eventStore.currentEventId
-        ) ?? null;
+      : eventsById.get(eventStore.currentEventId) ?? null;
 
-  /*
-    現在のイベントだけは画面を開く前に集計を確認します。
-    既に集計済みなら1ドキュメントの確認だけで終わり、
-    未作成・要再計算のときだけ受付履歴から作り直します。
-  */
   useEffect(() => {
     if (
       !eventSyncReady ||
       !currentEventSyncReady ||
       currentEvent === null ||
-      typeof navigator ===
-        "undefined" ||
+      typeof navigator === "undefined" ||
       !navigator.onLine
     ) {
       return;
     }
 
-    void import(
-      "./eventAnalyticsFirestore"
-    )
-      .then(({
-        ensureEventAnalytics,
-      }) =>
-        ensureEventAnalytics(
-          currentEvent.name
-        )
+    void import("./eventAnalyticsFirestore")
+      .then(({ ensureEventAnalytics }) =>
+        ensureEventAnalytics(currentEvent.name)
       )
       .catch((error) => {
         console.warn(
@@ -847,83 +793,53 @@ function App() {
           error
         );
       });
-  }, [
-    currentEvent,
-    currentEventSyncReady,
-    eventSyncReady,
-  ]);
+  }, [currentEvent, currentEventSyncReady, eventSyncReady]);
 
-  /*
-    現在のイベントが未設定・削除済み・終了済みの場合は、
-    今日に最も近い未終了イベントを自動設定します。
-
-    手動で有効なイベントを選択した場合は、
-    その選択を維持します。
-  */
   useEffect(() => {
     if (
       !isMemberDevice ||
       !eventSyncReady ||
       !currentEventSyncReady ||
-      eventStore.events.length ===
-        0
+      eventStore.events.length === 0
     ) {
       return;
     }
 
     if (
-      currentEvent !==
-        null &&
-      getRuntimeStatus(
-        currentEvent
-      ) !== "ended"
+      currentEvent !== null &&
+      getRuntimeStatus(currentEvent) !== "ended"
     ) {
-      autoSelectingEventIdRef.current =
-        null;
-
+      autoSelectingEventIdRef.current = null;
       return;
     }
 
     const closestEvent =
-      findClosestSelectableEvent(
-        eventStore.events
-      );
+      findClosestSelectableEvent(eventStore.events);
 
     if (
-      closestEvent ===
-        null ||
-      closestEvent.id ===
-        eventStore.currentEventId ||
-      autoSelectingEventIdRef.current ===
-        closestEvent.id
+      closestEvent === null ||
+      closestEvent.id === eventStore.currentEventId ||
+      autoSelectingEventIdRef.current === closestEvent.id
     ) {
       return;
     }
 
-    autoSelectingEventIdRef.current =
-      closestEvent.id;
+    autoSelectingEventIdRef.current = closestEvent.id;
 
-    const selectClosestEvent =
-      async () => {
-        try {
-          await setCurrentEventIdInFirestore(
-            closestEvent.id
-          );
-        } catch (error) {
-          console.error(
-            "日付が最も近いイベントの自動設定に失敗しました。",
-            error
-          );
-        } finally {
-          if (
-            autoSelectingEventIdRef.current ===
-            closestEvent.id
-          ) {
-            autoSelectingEventIdRef.current =
-              null;
-          }
+    const selectClosestEvent = async () => {
+      try {
+        await setCurrentEventIdInFirestore(closestEvent.id);
+      } catch (error) {
+        console.error(
+          "日付が最も近いイベントの自動設定に失敗しました。",
+          error
+        );
+      } finally {
+        if (autoSelectingEventIdRef.current === closestEvent.id) {
+          autoSelectingEventIdRef.current = null;
         }
-      };
+      }
+    };
 
     void selectClosestEvent();
   }, [
@@ -935,30 +851,16 @@ function App() {
     isMemberDevice,
   ]);
 
-  /*
-    従来の画面との互換性のため、
-    現在のイベントをlocalStorageにも保存します。
-
-    正式な共有元はFirestoreです。
-  */
   useEffect(() => {
     try {
-      if (
-        currentEvent ===
-        null
-      ) {
-        localStorage.removeItem(
-          LEGACY_CURRENT_EVENT_KEY
-        );
-
+      if (currentEvent === null) {
+        localStorage.removeItem(LEGACY_CURRENT_EVENT_KEY);
         return;
       }
 
       localStorage.setItem(
         LEGACY_CURRENT_EVENT_KEY,
-        JSON.stringify(
-          currentEvent
-        )
+        JSON.stringify(currentEvent)
       );
     } catch (error) {
       console.warn(
@@ -966,13 +868,10 @@ function App() {
         error
       );
     }
-  }, [
-    currentEvent,
-  ]);
+  }, [currentEvent]);
 
   useEffect(() => {
-    const eventName =
-      currentEvent?.name ?? "";
+    const eventName = currentEvent?.name ?? "";
 
     if (eventName.trim() === "") {
       return;
@@ -980,12 +879,9 @@ function App() {
 
     let active = true;
 
-    const unsubscribeFunctions:
-      Array<() => void> = [];
+    const unsubscribeFunctions: Array<() => void> = [];
 
-    const handleCacheError = (
-      error: Error
-    ) => {
+    const handleCacheError = (error: Error) => {
       if (navigator.onLine) {
         console.warn(
           "オフライン受付データの準備に失敗しました。",
@@ -995,22 +891,12 @@ function App() {
     };
 
     void Promise.all([
-      import(
-        "./ticketFirestore"
-      ),
-
-      import(
-        "./memberFirestore"
-      ),
+      import("./ticketFirestore"),
+      import("./memberFirestore"),
     ])
       .then(([
-        {
-          subscribeToTickets,
-        },
-        {
-          subscribeToEventMembers,
-          subscribeToMemberCards,
-        },
+        { subscribeToTickets },
+        { subscribeToEventMembers, subscribeToMemberCards },
       ]) => {
         if (!active) {
           return;
@@ -1020,24 +906,38 @@ function App() {
           subscribeToTickets(
             eventName,
             (tickets) => {
-              void replaceTicketsForEvent(
-                eventStore.currentEventId ?? "",
-                tickets.map((ticket) => ({
-                  id: ticket.id,
-                  eventId: eventStore.currentEventId ?? "",
-                  qrNumber: ticket.qrNumber,
-                  authToken: ticket.authToken,
-                  createdAt: Number.isFinite(Date.parse(ticket.createdAt))
-                    ? Date.parse(ticket.createdAt)
-                    : Date.now(),
-                  updatedAt: Date.now(),
-                }))
-              ).catch((error) => {
-                console.error(
-                  "チケットのIndexedDB保存に失敗しました。",
-                  error
-                );
-              });
+              void getEvents()
+                .then((localEvents) => {
+                  const localEvent = localEvents.find(
+                    (event) => event.name === eventName
+                  );
+
+                  if (!localEvent) {
+                    throw new Error(
+                      "IndexedDB上のイベント情報がまだ準備されていません。"
+                    );
+                  }
+
+                  return replaceTicketsForEvent(
+                    localEvent.id,
+                    tickets.map((ticket) => ({
+                      id: ticket.id,
+                      eventId: localEvent.id,
+                      qrNumber: ticket.qrNumber,
+                      authToken: ticket.authToken,
+                      createdAt: Number.isFinite(Date.parse(ticket.createdAt))
+                        ? Date.parse(ticket.createdAt)
+                        : Date.now(),
+                      updatedAt: Date.now(),
+                    }))
+                  );
+                })
+                .catch((error) => {
+                  console.error(
+                    "チケットのIndexedDB保存に失敗しました。",
+                    error
+                  );
+                });
             },
             handleCacheError
           ),
@@ -1063,507 +963,282 @@ function App() {
     return () => {
       active = false;
 
-      unsubscribeFunctions.forEach(
-        (unsubscribe) => {
-          unsubscribe();
-        }
-      );
+      unsubscribeFunctions.forEach((unsubscribe) => {
+        unsubscribe();
+      });
     };
-  }, [
-    currentEvent?.name,
-    eventStore.currentEventId,
-  ]);
+  }, [currentEvent?.name]);
 
   const currentEventStatus =
     currentEvent === null
       ? null
-      : getRuntimeStatus(
-          currentEvent
-        );
+      : getRuntimeStatus(currentEvent);
 
   const eventConfigured =
     currentEvent !== null &&
-    currentEventStatus !==
-      "ended";
+    currentEventStatus !== "ended";
 
-  /*
-    開催終了時刻を過ぎたイベントは、
-    Firestore上のチケット・部員・受付履歴・分析を確定してから
-    イベント本体を終了状態にします。
-  */
   useEffect(() => {
     if (!isMemberDevice) {
       return;
     }
 
-    const checkEndedEvents =
-      async () => {
-        const now =
-          Date.now();
+    const checkEndedEvents = async () => {
+      const now = Date.now();
 
-        const eventsToEnd =
-          eventStore.events.filter(
-            (event) => {
-              if (
-                event.status ===
-                  "ended" ||
-                typeof event.endedAt ===
-                  "string" ||
-                endingEventIdsRef.current.has(
-                  event.id
-                )
-              ) {
-                return false;
-              }
-
-              const endDate =
-                createEventDateTime(
-                  event.date,
-                  event.endTime
-                );
-
-              return (
-                endDate !== null &&
-                now >=
-                  endDate.getTime()
-              );
-            }
-          );
-
-        for (
-          const event of
-          eventsToEnd
+      const eventsToEnd = eventStore.events.filter((event) => {
+        if (
+          event.status === "ended" ||
+          typeof event.endedAt === "string" ||
+          endingEventIdsRef.current.has(event.id)
         ) {
-          endingEventIdsRef.current.add(
-            event.id
+          return false;
+        }
+
+        const endDate = createEventDateTime(
+          event.date,
+          event.endTime
+        );
+
+        return endDate !== null && now >= endDate.getTime();
+      });
+
+      for (const event of eventsToEnd) {
+        endingEventIdsRef.current.add(event.id);
+
+        const endDate = createEventDateTime(
+          event.date,
+          event.endTime
+        );
+
+        const endedAt =
+          endDate?.toISOString() ??
+          new Date().toISOString();
+
+        try {
+          await saveEventToFirestore({
+            ...event,
+            status: "ended",
+            endedAt,
+          });
+
+          if (eventStore.currentEventId === event.id) {
+            await setCurrentEventIdInFirestore(null);
+          }
+        } catch (error) {
+          console.error(
+            `${event.name}の自動終了に失敗しました。`,
+            error
           );
 
-          const endDate =
-            createEventDateTime(
-              event.date,
-              event.endTime
-            );
-
-          const endedAt =
-            endDate?.toISOString() ??
-            new Date().toISOString();
-
-          try {
-            await saveEventToFirestore({
-              ...event,
-              status:
-                "ended",
-              endedAt,
-            });
-
-            if (
-              eventStore.currentEventId ===
-              event.id
-            ) {
-              await setCurrentEventIdInFirestore(
-                null
-              );
-            }
-          } catch (error) {
-            console.error(
-              `${event.name}の自動終了に失敗しました。`,
-              error
-            );
-
-            endingEventIdsRef.current.delete(
-              event.id
-            );
-          }
+          endingEventIdsRef.current.delete(event.id);
         }
-      };
+      }
+    };
 
     void checkEndedEvents();
 
-    const timer =
-      window.setInterval(
-        () => {
-          void checkEndedEvents();
-        },
-        1000
-      );
+    const timer = window.setInterval(() => {
+      void checkEndedEvents();
+    }, 1000);
 
     return () => {
-      window.clearInterval(
-        timer
-      );
+      window.clearInterval(timer);
     };
-  }, [
-    eventStore.events,
-    eventStore.currentEventId,
-    isMemberDevice,
-  ]);
+  }, [eventStore.events, eventStore.currentEventId, isMemberDevice]);
 
-  const changePage = (
-    newPage: string
-  ) => {
-    const nextPage =
-      newPage as Page;
+  const changePage = (newPage: string) => {
+    const nextPage = newPage as Page;
 
     if (
-      ADMIN_ONLY_PAGES.has(
-        nextPage
-      ) &&
+      ADMIN_ONLY_PAGES.has(nextPage) &&
       !requestAdminAccess()
     ) {
       return;
     }
 
-    if (
-      nextPage === "admin" &&
-      page === "home"
-    ) {
-      setAdminOrigin(
-        "home"
-      );
+    if (nextPage === "admin" && page === "home") {
+      setAdminOrigin("home");
     }
 
-    setPage(
-      nextPage
-    );
+    setPage(nextPage);
   };
 
-  const openAdminAuth = (
-    origin:
-      | "entry"
-      | "exit"
-  ) => {
+  const openAdminAuth = (origin: "entry" | "exit") => {
     if (!requestAdminAccess()) {
       return;
     }
 
-    setAdminOrigin(
-      origin
-    );
-
-    setPage(
-      "admin-auth"
-    );
+    setAdminOrigin(origin);
+    setPage("admin-auth");
   };
 
-  const returnFromAdmin =
-    () => {
-      if (
-        adminOrigin ===
-        "entry"
-      ) {
-        setPage(
-          "entry"
-        );
+  const returnFromAdmin = () => {
+    if (adminOrigin === "entry") {
+      setPage("entry");
+      return;
+    }
 
-        return;
-      }
+    if (adminOrigin === "exit") {
+      setPage("exit");
+      return;
+    }
 
-      if (
-        adminOrigin ===
-        "exit"
-      ) {
-        setPage(
-          "exit"
-        );
+    setPage("home");
+  };
 
-        return;
-      }
+  const createEvent = (newEventData: NewEventData) => {
+    const runCreateEvent = async () => {
+      const eventId = createSafeRandomId();
 
-      setPage(
-        "home"
-      );
-    };
-
-  const createEvent = (
-    newEventData:
-      NewEventData
-  ) => {
-    const runCreateEvent =
-      async () => {
-        const eventId =
-          createSafeRandomId();
-
-        const newEvent:
-          EventData = {
-          id:
-            eventId,
-
-          dataDocumentId:
-            eventId,
-
-          ...newEventData,
-
-          status:
-            "scheduled",
-        };
-
-        try {
-          await createEventInFirestore(
-            newEvent
-          );
-        } catch (error) {
-          console.error(
-            "イベントの作成に失敗しました。",
-            error
-          );
-
-          alert(
-            "イベントを作成できませんでした。\n通信状態を確認してください。"
-          );
-        }
+      const newEvent: EventData = {
+        id: eventId,
+        dataDocumentId: eventId,
+        ...newEventData,
+        status: "scheduled",
       };
+
+      try {
+        await createEventInFirestore(newEvent);
+      } catch (error) {
+        console.error("イベントの作成に失敗しました。", error);
+        alert(
+          "イベントを作成できませんでした。\n通信状態を確認してください。"
+        );
+      }
+    };
 
     void runCreateEvent();
   };
 
-  const selectCurrentEvent =
-    (
-      eventId: string
-    ) => {
-      const runSelectEvent =
-        async () => {
-          const selectedEvent =
-            eventsById.get(
-              eventId
-            );
+  const selectCurrentEvent = (eventId: string) => {
+    const runSelectEvent = async () => {
+      const selectedEvent = eventsById.get(eventId);
 
-          if (
-            selectedEvent ===
-            undefined
-          ) {
-            alert(
-              "イベントが見つかりません。"
-            );
+      if (selectedEvent === undefined) {
+        alert("イベントが見つかりません。");
+        return;
+      }
 
-            return;
-          }
+      if (getRuntimeStatus(selectedEvent) === "ended") {
+        alert("終了したイベントは現在のイベントに設定できません。");
+        return;
+      }
 
-          if (
-            getRuntimeStatus(
-              selectedEvent
-            ) === "ended"
-          ) {
-            alert(
-              "終了したイベントは現在のイベントに設定できません。"
-            );
-
-            return;
-          }
-
-          try {
-            await setCurrentEventIdInFirestore(
-              eventId
-            );
-          } catch (error) {
-            console.error(
-              "現在のイベントの変更に失敗しました。",
-              error
-            );
-
-            alert(
-              "現在のイベントを変更できませんでした。\n通信状態を確認してください。"
-            );
-          }
-        };
-
-      void runSelectEvent();
+      try {
+        await setCurrentEventIdInFirestore(eventId);
+      } catch (error) {
+        console.error("現在のイベントの変更に失敗しました。", error);
+        alert(
+          "現在のイベントを変更できませんでした。\n通信状態を確認してください。"
+        );
+      }
     };
 
-  const forceEndEvent =
-    async (
-      eventId: string
-    ) => {
-      const targetEvent =
-        eventsById.get(
-          eventId
+    void runSelectEvent();
+  };
+
+  const forceEndEvent = async (eventId: string) => {
+    const targetEvent = eventsById.get(eventId);
+
+    if (targetEvent === undefined) {
+      throw new Error("終了するイベントが見つかりません。");
+    }
+
+    if (
+      targetEvent.status === "ended" ||
+      typeof targetEvent.endedAt === "string"
+    ) {
+      return { ticketCount: 0, memberCount: 0 };
+    }
+
+    const endedAt = new Date().toISOString();
+
+    const exitResult = await saveEventToFirestore({
+      ...targetEvent,
+      status: "ended",
+      endedAt,
+    });
+
+    if (eventStore.currentEventId === eventId) {
+      await setCurrentEventIdInFirestore(null);
+    }
+
+    return exitResult ?? { ticketCount: 0, memberCount: 0 };
+  };
+
+  const deleteEvent = (eventId: string) => {
+    const runDeleteEvent = async () => {
+      try {
+        await deleteEventFromFirestore(
+          eventId,
+          eventStore.currentEventId === eventId
         );
-
-      if (
-        targetEvent ===
-        undefined
-      ) {
-        throw new Error(
-          "終了するイベントが見つかりません。"
-        );
-      }
-
-      if (
-        targetEvent.status ===
-          "ended" ||
-        typeof targetEvent.endedAt ===
-          "string"
-      ) {
-        return {
-          ticketCount:
-            0,
-          memberCount:
-            0,
-        };
-      }
-
-      const endedAt =
-        new Date().toISOString();
-
-      const exitResult =
-        await saveEventToFirestore({
-          ...targetEvent,
-
-          status:
-            "ended",
-
-          endedAt,
-        });
-
-      if (
-        eventStore.currentEventId ===
-        eventId
-      ) {
-        await setCurrentEventIdInFirestore(
-          null
+      } catch (error) {
+        console.error("イベントの削除に失敗しました。", error);
+        alert(
+          "イベントを削除できませんでした。\n通信状態を確認してください。"
         );
       }
-
-      return (
-        exitResult ?? {
-          ticketCount:
-            0,
-          memberCount:
-            0,
-        }
-      );
     };
-
-  const deleteEvent = (
-    eventId: string
-  ) => {
-    const runDeleteEvent =
-      async () => {
-        try {
-          await deleteEventFromFirestore(
-            eventId,
-            eventStore.currentEventId ===
-              eventId
-          );
-        } catch (error) {
-          console.error(
-            "イベントの削除に失敗しました。",
-            error
-          );
-
-          alert(
-            "イベントを削除できませんでした。\n通信状態を確認してください。"
-          );
-        }
-      };
 
     void runDeleteEvent();
   };
 
-  const resetAllData =
-    () => {
-      const runResetAllData =
-        async () => {
-          try {
-            await Promise.all(
-              eventStore.events.map(
-                (event) =>
-                  deleteEventFromFirestore(
-                    event.id,
-                    false
-                  )
-              )
-            );
+  const resetAllData = () => {
+    const runResetAllData = async () => {
+      try {
+        await Promise.all(
+          eventStore.events.map((event) =>
+            deleteEventFromFirestore(event.id, false)
+          )
+        );
 
-            await setCurrentEventIdInFirestore(
-              null
-            );
+        await setCurrentEventIdInFirestore(null);
 
-            const keysToDelete:
-              string[] = [];
+        const keysToDelete: string[] = [];
 
-            for (
-              let index = 0;
-              index <
-              localStorage.length;
-              index += 1
-            ) {
-              const key =
-                localStorage.key(
-                  index
-                );
+        for (let index = 0; index < localStorage.length; index += 1) {
+          const key = localStorage.key(index);
 
-              if (
-                key !== null &&
-                key.startsWith(
-                  "qr-management-"
-                )
-              ) {
-                keysToDelete.push(
-                  key
-                );
-              }
-            }
-
-            keysToDelete.forEach(
-              (key) => {
-                localStorage.removeItem(
-                  key
-                );
-              }
-            );
-
-            setAdminOrigin(
-              "home"
-            );
-
-            setPage(
-              "home"
-            );
-
-            alert(
-              "QR管理システムのデータを初期化しました。"
-            );
-          } catch (error) {
-            console.error(
-              "データの初期化に失敗しました。",
-              error
-            );
-
-            alert(
-              "データを初期化できませんでした。\n通信状態を確認してください。"
-            );
+          if (
+            key !== null &&
+            key.startsWith("qr-management-")
+          ) {
+            keysToDelete.push(key);
           }
-        };
+        }
 
-      void runResetAllData();
+        keysToDelete.forEach((key) => {
+          localStorage.removeItem(key);
+        });
+
+        setAdminOrigin("home");
+        setPage("home");
+
+        alert("QR管理システムのデータを初期化しました。");
+      } catch (error) {
+        console.error("データの初期化に失敗しました。", error);
+        alert(
+          "データを初期化できませんでした。\n通信状態を確認してください。"
+        );
+      }
     };
 
-  if (
-    !eventSyncReady
-  ) {
+    void runResetAllData();
+  };
+
+  if (!eventSyncReady) {
     return (
       <div
         style={{
-          minHeight:
-            "100vh",
-
-          display:
-            "grid",
-
-          placeItems:
-            "center",
-
-          background:
-            "#f4f4f4",
-
-          color:
-            "#222",
-
-          fontSize:
-            "28px",
-
-          fontWeight:
-            "bold",
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          background: "#f4f4f4",
+          color: "#222",
+          fontSize: "28px",
+          fontWeight: "bold",
         }}
       >
         Firebaseからイベント情報を読み込んでいます…
@@ -1571,101 +1246,46 @@ function App() {
     );
   }
 
-  if (
-    eventSyncError !== ""
-  ) {
+  if (eventSyncError !== "") {
     return (
       <div
         style={{
-          minHeight:
-            "100vh",
-
-          display:
-            "grid",
-
-          placeItems:
-            "center",
-
-          padding:
-            "30px",
-
-          boxSizing:
-            "border-box",
-
-          background:
-            "#f4f4f4",
-
-          color:
-            "#222",
+          minHeight: "100vh",
+          display: "grid",
+          placeItems: "center",
+          padding: "30px",
+          boxSizing: "border-box",
+          background: "#f4f4f4",
+          color: "#222",
         }}
       >
         <div
           style={{
-            maxWidth:
-              "800px",
-
-            padding:
-              "30px",
-
-            borderRadius:
-              "20px",
-
-            background:
-              "#ffffff",
-
-            textAlign:
-              "center",
+            maxWidth: "800px",
+            padding: "30px",
+            borderRadius: "20px",
+            background: "#ffffff",
+            textAlign: "center",
           }}
         >
-          <h1>
-            Firebaseに接続できません
-          </h1>
-
-          <p
-            style={{
-              fontSize:
-                "22px",
-            }}
-          >
+          <h1>Firebaseに接続できません</h1>
+          <p style={{ fontSize: "22px" }}>
             インターネット接続とFirestoreの設定を確認してください。
           </p>
-
-          <p>
-            {eventSyncError}
-          </p>
-
+          <p>{eventSyncError}</p>
           <button
             type="button"
-            onClick={() =>
-              window.location.reload()
-            }
+            onClick={() => window.location.reload()}
             style={{
-              minHeight:
-                "60px",
-
-              padding:
-                "10px 26px",
-
-              border:
-                "none",
-
-              borderRadius:
-                "12px",
-
-              background:
-                "#9966ee",
-
-              color:
-                "#ffffff",
-
-              fontSize:
-                "22px",
-
-              fontWeight:
-                "bold",
-
-              cursor:
-                "pointer",
+              minHeight: "60px",
+              padding: "10px 26px",
+              border: "none",
+              borderRadius: "12px",
+              background: "#9966ee",
+              color: "#ffffff",
+              fontSize: "22px",
+              fontWeight: "bold",
+              cursor: "pointer",
             }}
           >
             再読み込み
@@ -1676,8 +1296,7 @@ function App() {
   }
 
   const visiblePage =
-    !isMemberDevice &&
-    ADMIN_ONLY_PAGES.has(page)
+    !isMemberDevice && ADMIN_ONLY_PAGES.has(page)
       ? "home"
       : page;
 
@@ -1685,211 +1304,121 @@ function App() {
     case "entry":
       return (
         <EntryPage
-          setPage={
-            changePage
-          }
-          openAdminAuth={() =>
-            openAdminAuth(
-              "entry"
-            )
-          }
+          setPage={changePage}
+          openAdminAuth={() => openAdminAuth("entry")}
         />
       );
 
     case "exit":
       return (
         <ExitPage
-          setPage={
-            changePage
-          }
-          openAdminAuth={() =>
-            openAdminAuth(
-              "exit"
-            )
-          }
+          setPage={changePage}
+          openAdminAuth={() => openAdminAuth("exit")}
         />
       );
 
     case "admin-auth":
       return (
         <AdminAuthPage
-          setPage={
-            changePage
-          }
-          eventName={
-            currentEvent?.name ??
-            ""
-          }
-          returnPage={
-            adminOrigin
-          }
+          setPage={changePage}
+          eventName={currentEvent?.name ?? ""}
+          returnPage={adminOrigin}
         />
       );
 
     case "admin":
       return (
         <AdminPage
-          setPage={
-            changePage
-          }
-          eventConfigured={
-            eventConfigured
-          }
-          eventName={
-            currentEvent?.name ??
-            ""
-          }
-          adminOrigin={
-            adminOrigin
-          }
-          onReturn={
-            returnFromAdmin
-          }
+          setPage={changePage}
+          eventConfigured={eventConfigured}
+          eventName={currentEvent?.name ?? ""}
+          adminOrigin={adminOrigin}
+          onReturn={returnFromAdmin}
         />
       );
 
     case "events":
       return (
         <EventManagementPage
-          setPage={
-            changePage
-          }
-          events={
-            eventStore.events
-          }
-          currentEventId={
-            eventStore.currentEventId
-          }
-          onSelectCurrentEvent={
-            selectCurrentEvent
-          }
-          onDeleteEvent={
-            deleteEvent
-          }
-          onForceEndEvent={
-            forceEndEvent
-          }
+          setPage={changePage}
+          events={eventStore.events}
+          currentEventId={eventStore.currentEventId}
+          onSelectCurrentEvent={selectCurrentEvent}
+          onDeleteEvent={deleteEvent}
+          onForceEndEvent={forceEndEvent}
         />
       );
 
     case "create-event":
       return (
         <CreateEventPage
-          setPage={
-            changePage
-          }
-          onCreateEvent={
-            createEvent
-          }
+          setPage={changePage}
+          onCreateEvent={createEvent}
         />
       );
 
     case "members":
       return (
         <MembersPage
-          setPage={
-            changePage
-          }
-          eventName={
-            currentEvent?.name ??
-            ""
-          }
+          setPage={changePage}
+          eventName={currentEvent?.name ?? ""}
         />
       );
 
     case "tickets":
       return (
         <TicketsPage
-          setPage={
-            changePage
-          }
-          eventName={
-            currentEvent?.name ??
-            ""
-          }
+          setPage={changePage}
+          eventName={currentEvent?.name ?? ""}
         />
       );
 
     case "analysis":
       return (
         <AnalysisPage
-          setPage={
-            changePage
-          }
-          eventData={
-            currentEvent
-          }
+          setPage={changePage}
+          eventData={currentEvent}
         />
       );
 
     case "past-data":
       return (
         <PastDataPage
-          setPage={
-            changePage
-          }
-          events={
-            eventStore.events
-          }
+          setPage={changePage}
+          events={eventStore.events}
         />
       );
 
     case "settings":
       return (
         <SettingsPage
-          setPage={
-            changePage
-          }
-          eventName={
-            currentEvent?.name ??
-            ""
-          }
-          onResetAllData={
-            resetAllData
-          }
+          setPage={changePage}
+          eventName={currentEvent?.name ?? ""}
+          onResetAllData={resetAllData}
         />
       );
 
     case "device-access":
       return (
-        <DeviceManagementPage
-          setPage={
-            changePage
-          }
-        />
+        <DeviceManagementPage setPage={changePage} />
       );
 
     case "firebase-test":
       return (
-        <FirebaseTestPage
-          setPage={
-            changePage
-          }
-        />
+        <FirebaseTestPage setPage={changePage} />
       );
 
     case "control":
       return (
-        <ControlPage
-          setPage={
-            changePage
-          }
-        />
+        <ControlPage setPage={changePage} />
       );
 
     default:
       return (
         <HomePage
-          setPage={
-            changePage
-          }
-          eventConfigured={
-            eventConfigured
-          }
-          eventName={
-            currentEvent?.name ??
-            ""
-          }
+          setPage={changePage}
+          eventConfigured={eventConfigured}
+          eventName={currentEvent?.name ?? ""}
         />
       );
   }
