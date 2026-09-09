@@ -4,6 +4,9 @@ import AppRoot from "./AppRoot";
 import {
   installIntentionalReceptionStopGuard,
 } from "./receptionIntentionalStopGuard";
+import {
+  startOfflineReceptionSync,
+} from "./offlineReceptionSync";
 
 import "./index.css";
 import "./moved-data-controls.css";
@@ -61,6 +64,7 @@ const installAutomaticAppUpdate = () => {
 
 installAutomaticAppUpdate();
 installIntentionalReceptionStopGuard();
+startOfflineReceptionSync();
 
 /*
   iPad用印刷画面が表示されるたびに、
