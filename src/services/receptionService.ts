@@ -1,7 +1,6 @@
 import { getEvent, getEvents } from "../localdb/eventLocal";
 import { getTicketByQrCredentials } from "../localdb/ticketLocal";
-import { saveReceptionEvent } from "../localdb/receptionEventLocal";
-import { enqueueSyncItem } from "../localdb/syncQueueLocal";
+import { saveReceptionEventWithSyncQueue } from "../localdb/receptionEventLocal";
 import type { ReceptionEvent, SyncQueueItem } from "../localdb/types";
 
 export type ReceptionErrorCode =
@@ -116,17 +115,6 @@ export async function processTicketReception(
       createdAt: timestamp,
     };
 
-    try {
-      await saveReceptionEvent(
-        receptionEvent,
-      );
-    } catch {
-      return createReceptionError(
-        "LOCAL_SAVE_FAILED",
-        "受付情報を端末に保存できませんでした。",
-      );
-    }
-
     const syncQueueItem: SyncQueueItem = {
       id: receptionEvent.id,
       eventId,
@@ -138,12 +126,17 @@ export async function processTicketReception(
     };
 
     try {
-      await enqueueSyncItem(
+      // 受付イベントと同期キューを同じIndexedDBトランザクションで保存する。
+      // どちらか一方だけが保存される状態を作らない。
+      await saveReceptionEventWithSyncQueue(
+        receptionEvent,
         syncQueueItem,
       );
     } catch {
-      // The reception event is already persisted locally.
-      // The sync layer can recover the event from local history later.
+      return createReceptionError(
+        "LOCAL_SAVE_FAILED",
+        "受付情報を端末に保存できませんでした。",
+      );
     }
 
     return {
