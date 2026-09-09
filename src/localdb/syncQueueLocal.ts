@@ -69,20 +69,32 @@ export async function getPendingSyncItems(
     DB_STORES.syncQueue,
   );
   const index = store.index("status_createdAt");
-  const pending = await requestToPromise(
-    index.getAll(
-      IDBKeyRange.bound(
-        ["pending", -Infinity],
-        ["pending", Infinity],
+
+  const statuses: SyncQueueStatus[] = [
+    "pending",
+    "processing",
+  ];
+
+  const items: SyncQueueItem[] = [];
+
+  for (const status of statuses) {
+    const result = await requestToPromise(
+      index.getAll(
+        IDBKeyRange.bound(
+          [status, -Infinity],
+          [status, Infinity],
+        ),
       ),
-    ),
-  );
+    );
+
+    items.push(...result);
+  }
 
   const filtered = eventId
-    ? pending.filter(
+    ? items.filter(
         (item) => item.eventId === eventId,
       )
-    : pending;
+    : items;
 
   return filtered.sort(
     (a, b) => a.createdAt - b.createdAt,
