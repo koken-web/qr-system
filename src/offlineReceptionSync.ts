@@ -2,8 +2,8 @@ import {
   doc,
   runTransaction,
   serverTimestamp,
-  type DocumentSnapshot,
   type DocumentData,
+  type DocumentSnapshot,
 } from "firebase/firestore";
 
 import {
@@ -12,21 +12,25 @@ import {
 
 import {
   ACTIVITY_COLLECTION,
-  EVENTS_COLLECTION,
   EVENT_DATA_COLLECTION,
-  EVENT_MEMBERS_COLLECTION,
-  MEMBER_CARDS_COLLECTION,
   TICKETS_COLLECTION,
   getEventDataId,
 } from "./firestorePaths";
 
 import {
-  getPendingReceptionOperations,
-  isTransientReceptionError,
-  removePendingReceptionOperation,
-  subscribeToPendingReceptionCount,
-  type PendingReceptionOperation,
-} from "./offlineReceptionStore";
+  getEvent,
+} from "./localdb/eventLocal";
+
+import {
+  getPendingSyncItems,
+  updateSyncItemStatus,
+  deleteSyncItem,
+} from "./localdb/syncQueueLocal";
+
+import type {
+  ReceptionEvent,
+  SyncQueueItem,
+} from "./localdb/types";
 
 import {
   getEventAnalyticsDocumentByDataId,
@@ -43,37 +47,68 @@ let syncInProgress =
 let syncStarted =
   false;
 
-function getActivityDocument(
-  operation: PendingReceptionOperation
-) {
-  return doc(
-    db,
-    EVENT_DATA_COLLECTION,
-    operation.eventDataId ??
-      getEventDataId(
-        operation.eventName
-      ),
-    ACTIVITY_COLLECTION,
-    operation.id
+function isReceptionEvent(
+  value: unknown,
+): value is ReceptionEvent {
+  if (
+    typeof value !== "object" ||
+    value === null
+  ) {
+    return false;
+  }
+
+  const event = value as Partial<ReceptionEvent>;
+
+  return (
+    typeof event.id === "string" &&
+    event.id.length > 0 &&
+    typeof event.eventId === "string" &&
+    event.eventId.length > 0 &&
+    typeof event.ticketId === "string" &&
+    event.ticketId.length > 0 &&
+    (event.type === "entry" || event.type === "exit") &&
+    Number.isFinite(event.timestamp) &&
+    typeof event.deviceId === "string" &&
+    event.deviceId.length > 0 &&
+    typeof event.offline === "boolean" &&
+    Number.isFinite(event.createdAt)
   );
+}
+
+function getReceptionEvent(
+  item: SyncQueueItem,
+): ReceptionEvent {
+  if (
+    item.type !== "reception" ||
+    !isReceptionEvent(item.data)
+  ) {
+    throw new Error("同期キューの受付データが不正です。");
+  }
+
+  if (
+    item.id !== item.data.id ||
+    item.eventId !== item.data.eventId
+  ) {
+    throw new Error("同期キューのIDまたはイベントIDが一致しません。");
+  }
+
+  return item.data;
 }
 
 function shouldApplyStatus(
   currentLastReceptionAt: unknown,
-  capturedAt: string
+  capturedAt: string,
 ) {
   if (
-    typeof currentLastReceptionAt !==
-      "string" ||
-    currentLastReceptionAt ===
-      ""
+    typeof currentLastReceptionAt !== "string" ||
+    currentLastReceptionAt === ""
   ) {
     return true;
   }
 
   return (
     capturedAt.localeCompare(
-      currentLastReceptionAt
+      currentLastReceptionAt,
     ) >= 0
   );
 }
@@ -84,32 +119,24 @@ type EndedEventState = {
 };
 
 function getEndedEventState(
-  snapshot:
-    DocumentSnapshot<DocumentData>
+  snapshot: DocumentSnapshot<DocumentData>,
 ): EndedEventState {
-  if (
-    !snapshot.exists()
-  ) {
+  if (!snapshot.exists()) {
     return {
       ended: false,
       endedAt: null,
     };
   }
 
-  const data =
-    snapshot.data();
-
+  const data = snapshot.data();
   const ended =
-    data.status ===
-      "ended" ||
-    typeof data.endedAt ===
-      "string";
+    data.status === "ended" ||
+    typeof data.endedAt === "string";
 
   return {
     ended,
     endedAt:
-      typeof data.endedAt ===
-        "string"
+      typeof data.endedAt === "string"
         ? data.endedAt
         : null,
   };
@@ -117,577 +144,291 @@ function getEndedEventState(
 
 function wasCapturedBeforeEventEnd(
   capturedAt: string,
-  endedAt: string | null
+  endedAt: string | null,
 ) {
-  if (
-    endedAt === null
-  ) {
+  if (endedAt === null) {
     return false;
   }
 
-  const capturedTime =
-    Date.parse(
-      capturedAt
-    );
-
-  const endedTime =
-    Date.parse(
-      endedAt
-    );
+  const capturedTime = Date.parse(capturedAt);
+  const endedTime = Date.parse(endedAt);
 
   return (
-    Number.isFinite(
-      capturedTime
-    ) &&
-    Number.isFinite(
-      endedTime
-    ) &&
-    capturedTime <=
-      endedTime
+    Number.isFinite(capturedTime) &&
+    Number.isFinite(endedTime) &&
+    capturedTime <= endedTime
   );
 }
 
-async function syncTicketOperation(
-  operation: Extract<
-    PendingReceptionOperation,
-    { kind: "ticket" }
-  >
+async function syncReceptionEvent(
+  receptionEvent: ReceptionEvent,
 ) {
-  const eventId =
-    operation.eventDataId ??
-    getEventDataId(
-      operation.eventName
-    );
+  const localEvent = await getEvent(
+    receptionEvent.eventId,
+  );
 
-  const eventDocument =
-    doc(
-      db,
-      EVENTS_COLLECTION,
-      eventId
+  if (!localEvent) {
+    throw new Error(
+      `同期対象イベント ${receptionEvent.eventId} が端末にありません。`,
     );
+  }
 
-  const ticketDocument =
-    doc(
-      db,
-      EVENT_DATA_COLLECTION,
-      eventId,
-      TICKETS_COLLECTION,
-      operation.qrNumber
-    );
+  const eventDataId = getEventDataId(
+    localEvent.name,
+  );
+  const capturedAt = new Date(
+    receptionEvent.timestamp,
+  ).toISOString();
 
-  const activityDocument =
-    getActivityDocument(
-      operation
+  const eventDocument = doc(
+    db,
+    "events",
+    receptionEvent.eventId,
+  );
+
+  const ticketDocument = doc(
+    db,
+    EVENT_DATA_COLLECTION,
+    eventDataId,
+    TICKETS_COLLECTION,
+    receptionEvent.ticketId,
+  );
+
+  const activityDocument = doc(
+    db,
+    EVENT_DATA_COLLECTION,
+    eventDataId,
+    ACTIVITY_COLLECTION,
+    receptionEvent.id,
+  );
+
+  const analyticsDocument =
+    getEventAnalyticsDocumentByDataId(
+      eventDataId,
     );
 
   await runTransaction(
     db,
-    async (
-      transaction
-    ) => {
+    async (transaction) => {
       const [
         eventSnapshot,
         activitySnapshot,
         ticketSnapshot,
         analyticsSnapshot,
       ] = await Promise.all([
-        transaction.get(
-          eventDocument
-        ),
-        transaction.get(
-          activityDocument
-        ),
-        transaction.get(
-          ticketDocument
-        ),
-        transaction.get(
-          getEventAnalyticsDocumentByDataId(
-            eventId
-          )
-        ),
+        transaction.get(eventDocument),
+        transaction.get(activityDocument),
+        transaction.get(ticketDocument),
+        transaction.get(analyticsDocument),
       ]);
 
-      if (
-        activitySnapshot.exists()
-      ) {
+      if (activitySnapshot.exists()) {
         return;
       }
 
-      if (
-        !ticketSnapshot.exists()
-      ) {
+      if (!ticketSnapshot.exists()) {
         throw new Error(
-          `同期待ちチケット ${operation.qrNumber} が見つかりません。`
+          `同期対象チケット ${receptionEvent.ticketId} が見つかりません。`,
         );
       }
 
-      const ticketData =
-        ticketSnapshot.data();
+      const ticketData = ticketSnapshot.data();
+      const endedState = getEndedEventState(
+        eventSnapshot,
+      );
 
-      if (
-        ticketData.authToken !==
-        operation.authToken
-      ) {
-        throw new Error(
-          `同期待ちチケット ${operation.qrNumber} の認証情報が一致しません。`
-        );
-      }
-
-      const endedState =
-        getEndedEventState(
-          eventSnapshot
-        );
-
-      if (
-        endedState.ended
-      ) {
-        /*
-          終了後に古い受付画面から作られた操作は破棄します。
-          終了前にオフラインで受け付けた操作だけ履歴へ残します。
-        */
+      if (endedState.ended) {
         if (
           !wasCapturedBeforeEventEnd(
-            operation.capturedAt,
-            endedState.endedAt
+            capturedAt,
+            endedState.endedAt,
           )
         ) {
           return;
         }
 
-        if (
-          ticketData.status !==
-          "無効"
-        ) {
+        if (ticketData.status !== "無効") {
           transaction.update(
             ticketDocument,
             {
-              status:
-                "使用済み",
-              lastReceptionAt:
-                endedState.endedAt,
-              lastReceptionOperationId:
-                operation.id,
-              updatedAt:
-                serverTimestamp(),
-            }
+              status: "使用済み",
+              lastReceptionAt: endedState.endedAt,
+              lastReceptionOperationId: receptionEvent.id,
+              updatedAt: serverTimestamp(),
+            },
           );
         }
       } else if (
         shouldApplyStatus(
           ticketData.lastReceptionAt,
-          operation.capturedAt
+          capturedAt,
         )
       ) {
         transaction.update(
           ticketDocument,
           {
             status:
-              operation.nextStatus,
-            lastReceptionAt:
-              operation.capturedAt,
-            lastReceptionOperationId:
-              operation.id,
-            updatedAt:
-              serverTimestamp(),
-          }
+              receptionEvent.type === "entry"
+                ? "入場中"
+                : "使用済み",
+            lastReceptionAt: capturedAt,
+            lastReceptionOperationId: receptionEvent.id,
+            updatedAt: serverTimestamp(),
+          },
         );
       }
 
       transaction.set(
         activityDocument,
         {
-          id:
-            operation.id,
+          id: receptionEvent.id,
           type:
-            operation.action ===
-              "entry"
+            receptionEvent.type === "entry"
               ? "ticket-entry"
               : "ticket-exit",
-          qrNumber:
-            operation.qrNumber,
-          timestamp:
-            operation.capturedAt,
-          ...(operation.action ===
-          "entry"
-            ? {
-                isReEntry:
-                  operation.isReEntry,
-              }
-            : {}),
-          source:
-            "scanner",
-          offline:
-            true,
-          createdAt:
-            serverTimestamp(),
-        }
+          qrNumber: receptionEvent.ticketId,
+          timestamp: capturedAt,
+          source: "scanner",
+          offline: receptionEvent.offline,
+          createdAt: serverTimestamp(),
+        },
       );
 
       markEventAnalyticsStaleInTransaction(
         transaction,
-        analyticsSnapshot
-      );
-    }
-  );
-}
-
-async function syncMemberOperation(
-  operation: Extract<
-    PendingReceptionOperation,
-    { kind: "member" }
-  >
-) {
-  const eventId =
-    operation.eventDataId ??
-    getEventDataId(
-      operation.eventName
-    );
-
-  const eventDocument =
-    doc(
-      db,
-      EVENTS_COLLECTION,
-      eventId
-    );
-
-  const cardDocument =
-    doc(
-      db,
-      MEMBER_CARDS_COLLECTION,
-      operation.qrNumber
-    );
-
-  const memberDocument =
-    doc(
-      db,
-      EVENT_DATA_COLLECTION,
-      eventId,
-      EVENT_MEMBERS_COLLECTION,
-      operation.qrNumber
-    );
-
-  const activityDocument =
-    getActivityDocument(
-      operation
-    );
-
-  await runTransaction(
-    db,
-    async (
-      transaction
-    ) => {
-      const [
-        eventSnapshot,
-        activitySnapshot,
-        cardSnapshot,
-        memberSnapshot,
         analyticsSnapshot,
-      ] = await Promise.all([
-        transaction.get(
-          eventDocument
-        ),
-        transaction.get(
-          activityDocument
-        ),
-        transaction.get(
-          cardDocument
-        ),
-        transaction.get(
-          memberDocument
-        ),
-        transaction.get(
-          getEventAnalyticsDocumentByDataId(
-            eventId
-          )
-        ),
-      ]);
-
-      if (
-        activitySnapshot.exists()
-      ) {
-        return;
-      }
-
-      if (
-        !cardSnapshot.exists()
-      ) {
-        throw new Error(
-          `同期待ち部員QR ${operation.qrNumber} が見つかりません。`
-        );
-      }
-
-      const cardData =
-        cardSnapshot.data();
-
-      if (
-        cardData.authToken !==
-        operation.authToken
-      ) {
-        throw new Error(
-          `同期待ち部員QR ${operation.qrNumber} の認証情報が一致しません。`
-        );
-      }
-
-      const memberData =
-        memberSnapshot.exists()
-          ? memberSnapshot.data()
-          : {};
-
-      const endedState =
-        getEndedEventState(
-          eventSnapshot
-        );
-
-      if (
-        endedState.ended
-      ) {
-        if (
-          !wasCapturedBeforeEventEnd(
-            operation.capturedAt,
-            endedState.endedAt
-          )
-        ) {
-          return;
-        }
-
-        transaction.set(
-          memberDocument,
-          {
-            qrNumber:
-              operation.qrNumber,
-            name:
-              typeof memberData.name ===
-                "string"
-                ? memberData.name
-                : operation.memberName,
-            status:
-              "退出済み",
-            lastReceptionAt:
-              endedState.endedAt,
-            lastReceptionOperationId:
-              operation.id,
-            updatedAt:
-              serverTimestamp(),
-          },
-          {
-            merge:
-              true,
-          }
-        );
-      } else if (
-        shouldApplyStatus(
-          memberData.lastReceptionAt,
-          operation.capturedAt
-        )
-      ) {
-        transaction.set(
-          memberDocument,
-          {
-            qrNumber:
-              operation.qrNumber,
-            name:
-              typeof memberData.name ===
-                "string"
-                ? memberData.name
-                : operation.memberName,
-            status:
-              operation.nextStatus,
-            lastReceptionAt:
-              operation.capturedAt,
-            lastReceptionOperationId:
-              operation.id,
-            updatedAt:
-              serverTimestamp(),
-          },
-          {
-            merge:
-              true,
-          }
-        );
-      }
-
-      transaction.set(
-        activityDocument,
-        {
-          id:
-            operation.id,
-          type:
-            operation.action ===
-              "entry"
-              ? "member-entry"
-              : "member-exit",
-          qrNumber:
-            operation.qrNumber,
-          timestamp:
-            operation.capturedAt,
-          source:
-            "scanner",
-          offline:
-            true,
-          createdAt:
-            serverTimestamp(),
-        }
       );
-
-      markEventAnalyticsStaleInTransaction(
-        transaction,
-        analyticsSnapshot
-      );
-    }
+    },
   );
 }
 
 async function syncOperation(
-  operation: PendingReceptionOperation
+  item: SyncQueueItem,
 ) {
-  if (
-    operation.kind ===
-    "ticket"
-  ) {
-    await syncTicketOperation(
-      operation
+  if (item.type !== "reception") {
+    throw new Error(
+      `未対応の同期キュー種別です: ${item.type}`,
     );
-
-    return;
   }
 
-  await syncMemberOperation(
-    operation
-  );
+  const receptionEvent = getReceptionEvent(item);
+  await syncReceptionEvent(receptionEvent);
 }
 
 export async function syncPendingReceptionOperations() {
   if (
     syncInProgress ||
-    typeof navigator ===
-      "undefined" ||
+    typeof navigator === "undefined" ||
     !navigator.onLine
   ) {
     return;
   }
 
-  syncInProgress =
-    true;
+  syncInProgress = true;
 
   try {
     const operations =
-      getPendingReceptionOperations();
+      await getPendingSyncItems();
+    const changedEventIds = new Set<string>();
 
-    const changedEventIds =
-      new Set<string>();
-
-    for (
-      const operation of
-      operations
-    ) {
-      if (
-        !navigator.onLine
-      ) {
+    for (const operation of operations) {
+      if (!navigator.onLine) {
         break;
       }
 
+      const nextRetryCount =
+        operation.retryCount + 1;
+
       try {
-        await syncOperation(
-          operation
+        await updateSyncItemStatus(
+          operation.id,
+          "processing",
+          nextRetryCount,
         );
 
-        changedEventIds.add(
-          operation.eventDataId ??
-            getEventDataId(
-              operation.eventName
-            )
-        );
+        await syncOperation(operation);
 
-        removePendingReceptionOperation(
-          operation.id
-        );
+        await deleteSyncItem(operation.id);
+
+        changedEventIds.add(operation.eventId);
       } catch (error) {
         console.warn(
           `受付データ ${operation.id} の同期を次回へ延期します。`,
-          error
+          error,
         );
 
-        if (
-          isTransientReceptionError(
-            error
-          ) ||
-          !navigator.onLine
-        ) {
-          break;
+        // processingのまま残さず、次回オンライン時に再試行できるように戻す。
+        try {
+          await updateSyncItemStatus(
+            operation.id,
+            "pending",
+            nextRetryCount,
+          );
+        } catch (statusError) {
+          console.warn(
+            `同期キュー ${operation.id} の再試行状態を保存できませんでした。`,
+            statusError,
+          );
         }
 
-        /*
-          認証不一致や削除済みデータなどは
-          自動的に捨てず、管理者が確認できるよう
-          端末内に残して次回も再試行します。
-          後続の正常な受付は止めません。
-        */
-        continue;
+        if (!navigator.onLine) {
+          break;
+        }
       }
     }
 
-    for (
-      const eventId of
-      changedEventIds
-    ) {
+    for (const eventId of changedEventIds) {
       try {
+        const localEvent = await getEvent(eventId);
+        if (!localEvent) {
+          continue;
+        }
+
         await rebuildEventAnalyticsByDataId(
-          eventId
+          getEventDataId(localEvent.name),
         );
       } catch (error) {
         console.warn(
           `イベント ${eventId} の集計再計算を次回へ延期します。`,
-          error
+          error,
         );
       }
     }
   } finally {
-    syncInProgress =
-      false;
+    syncInProgress = false;
   }
 }
 
 export function startOfflineReceptionSync() {
   if (
     syncStarted ||
-    typeof window ===
-      "undefined"
+    typeof window === "undefined"
   ) {
     return;
   }
 
-  syncStarted =
-    true;
+  syncStarted = true;
 
-  const requestSync =
-    () => {
-      if (
-        !navigator.onLine
-      ) {
-        return;
-      }
+  const requestSync = () => {
+    if (!navigator.onLine) {
+      return;
+    }
 
-      void syncPendingReceptionOperations();
-    };
+    void syncPendingReceptionOperations();
+  };
 
   window.addEventListener(
     "online",
-    requestSync
-  );
-
-  subscribeToPendingReceptionCount(
-    () => {
-      requestSync();
-    }
+    requestSync,
   );
 
   window.setInterval(
     requestSync,
-    RETRY_INTERVAL_MILLISECONDS
+    RETRY_INTERVAL_MILLISECONDS,
   );
 
   window.setTimeout(
     requestSync,
-    0
+    0,
   );
 }
