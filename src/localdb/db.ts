@@ -1,5 +1,5 @@
 const DB_NAME = "QRManagementDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const DB_STORES = {
   events: "events",
@@ -131,6 +131,19 @@ function upgradeDatabase(
       },
     ]);
   }
+
+  if (oldVersion < 2) {
+    const tickets = database.transaction?.objectStore(
+      DB_STORES.tickets,
+    );
+
+    if (tickets && !tickets.indexNames.contains("eventId_qrNumber")) {
+      tickets.createIndex(
+        "eventId_qrNumber",
+        ["eventId", "qrNumber"],
+      );
+    }
+  }
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -149,9 +162,7 @@ function openDatabase(): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       upgradeDatabase(
         request.result,
-        request.transaction?.db.version === DB_VERSION
-          ? request.oldVersion
-          : request.oldVersion,
+        request.oldVersion,
       );
     };
 
