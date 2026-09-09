@@ -26,7 +26,10 @@ export type ReceptionResult =
     };
 
 function createReceptionEventId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+  if (
+    typeof crypto !== "undefined" &&
+    "randomUUID" in crypto
+  ) {
     return crypto.randomUUID();
   }
 
@@ -46,20 +49,36 @@ function createReceptionError(
   };
 }
 
+function createLocalQrToken(
+  qrNumber: string,
+  authToken: string,
+): string {
+  return `${qrNumber}:${authToken}`;
+}
+
 export async function processTicketReception(
   eventId: string,
-  qrToken: string,
+  qrNumber: string,
+  authToken: string,
   type: "entry" | "exit",
   deviceId: string,
 ): Promise<ReceptionResult> {
-  if (!eventId || !qrToken || !deviceId) {
+  if (
+    !eventId ||
+    !qrNumber ||
+    !authToken ||
+    !deviceId
+  ) {
     return createReceptionError(
       "INVALID_REQUEST",
       "受付情報が不足しています。",
     );
   }
 
-  if (type !== "entry" && type !== "exit") {
+  if (
+    type !== "entry" &&
+    type !== "exit"
+  ) {
     return createReceptionError(
       "INVALID_REQUEST",
       "受付種別が不正です。",
@@ -76,9 +95,17 @@ export async function processTicketReception(
       );
     }
 
-    const ticket = await getTicketByQrToken(qrToken);
+    const ticket = await getTicketByQrToken(
+      createLocalQrToken(
+        qrNumber,
+        authToken,
+      ),
+    );
 
-    if (!ticket || ticket.eventId !== eventId) {
+    if (
+      !ticket ||
+      ticket.eventId !== eventId
+    ) {
       return createReceptionError(
         "TICKET_NOT_FOUND",
         "このイベントのチケットが見つかりません。",
@@ -101,7 +128,9 @@ export async function processTicketReception(
     };
 
     try {
-      await saveReceptionEvent(receptionEvent);
+      await saveReceptionEvent(
+        receptionEvent,
+      );
     } catch {
       return createReceptionError(
         "LOCAL_SAVE_FAILED",
@@ -120,15 +149,18 @@ export async function processTicketReception(
     };
 
     try {
-      await enqueueSyncItem(syncQueueItem);
+      await enqueueSyncItem(
+        syncQueueItem,
+      );
     } catch {
       // ReceptionEvent itself is already safely stored locally.
-      // Sync can be recovered later from the local reception history.
+      // Sync recovery can use the local reception history.
     }
 
     return {
       success: true,
-      receptionEventId: receptionEvent.id,
+      receptionEventId:
+        receptionEvent.id,
       type,
       ticketId: ticket.id,
       timestamp,
@@ -143,12 +175,14 @@ export async function processTicketReception(
 
 export async function processTicketEntry(
   eventId: string,
-  qrToken: string,
+  qrNumber: string,
+  authToken: string,
   deviceId: string,
 ): Promise<ReceptionResult> {
   return processTicketReception(
     eventId,
-    qrToken,
+    qrNumber,
+    authToken,
     "entry",
     deviceId,
   );
@@ -156,12 +190,14 @@ export async function processTicketEntry(
 
 export async function processTicketExit(
   eventId: string,
-  qrToken: string,
+  qrNumber: string,
+  authToken: string,
   deviceId: string,
 ): Promise<ReceptionResult> {
   return processTicketReception(
     eventId,
-    qrToken,
+    qrNumber,
+    authToken,
     "exit",
     deviceId,
   );
