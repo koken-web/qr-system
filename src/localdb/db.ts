@@ -43,6 +43,7 @@ function createIndexes(
 
 function upgradeDatabase(
   database: IDBDatabase,
+  upgradeTransaction: IDBTransaction,
   oldVersion: number,
 ): void {
   if (oldVersion < 1) {
@@ -133,11 +134,11 @@ function upgradeDatabase(
   }
 
   if (oldVersion < 2) {
-    const tickets = database.transaction?.objectStore(
+    const tickets = upgradeTransaction.objectStore(
       DB_STORES.tickets,
     );
 
-    if (tickets && !tickets.indexNames.contains("eventId_qrNumber")) {
+    if (!tickets.indexNames.contains("eventId_qrNumber")) {
       tickets.createIndex(
         "eventId_qrNumber",
         ["eventId", "qrNumber"],
@@ -160,8 +161,18 @@ function openDatabase(): Promise<IDBDatabase> {
     );
 
     request.onupgradeneeded = () => {
+      const upgradeTransaction = request.transaction;
+
+      if (!upgradeTransaction) {
+        reject(
+          new Error("IndexedDB upgrade transaction is unavailable."),
+        );
+        return;
+      }
+
       upgradeDatabase(
         request.result,
+        upgradeTransaction,
         request.oldVersion,
       );
     };
