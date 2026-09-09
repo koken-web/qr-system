@@ -22,6 +22,10 @@ import {
 } from "./localdb/eventLocal";
 
 import {
+  getTicketById,
+} from "./localdb/ticketLocal";
+
+import {
   getPendingSyncItems,
   updateSyncItemStatus,
   deleteSyncItem,
@@ -41,11 +45,8 @@ import {
 const RETRY_INTERVAL_MILLISECONDS =
   15 * 1000;
 
-let syncInProgress =
-  false;
-
-let syncStarted =
-  false;
+let syncInProgress = false;
+let syncStarted = false;
 
 function isReceptionEvent(
   value: unknown,
@@ -107,9 +108,7 @@ function shouldApplyStatus(
   }
 
   return (
-    capturedAt.localeCompare(
-      currentLastReceptionAt,
-    ) >= 0
+    capturedAt.localeCompare(currentLastReceptionAt) >= 0
   );
 }
 
@@ -173,6 +172,17 @@ async function syncReceptionEvent(
     );
   }
 
+  const localTicket = await getTicketById(
+    receptionEvent.eventId,
+    receptionEvent.ticketId,
+  );
+
+  if (!localTicket) {
+    throw new Error(
+      `同期対象チケット ${receptionEvent.ticketId} が端末にありません。`,
+    );
+  }
+
   const eventDataId = getEventDataId(
     localEvent.name,
   );
@@ -191,7 +201,7 @@ async function syncReceptionEvent(
     EVENT_DATA_COLLECTION,
     eventDataId,
     TICKETS_COLLECTION,
-    receptionEvent.ticketId,
+    localTicket.qrNumber,
   );
 
   const activityDocument = doc(
@@ -228,7 +238,7 @@ async function syncReceptionEvent(
 
       if (!ticketSnapshot.exists()) {
         throw new Error(
-          `同期対象チケット ${receptionEvent.ticketId} が見つかりません。`,
+          `同期対象チケット ${localTicket.qrNumber} が見つかりません。`,
         );
       }
 
@@ -286,7 +296,7 @@ async function syncReceptionEvent(
             receptionEvent.type === "entry"
               ? "ticket-entry"
               : "ticket-exit",
-          qrNumber: receptionEvent.ticketId,
+          qrNumber: localTicket.qrNumber,
           timestamp: capturedAt,
           source: "scanner",
           offline: receptionEvent.offline,
@@ -349,7 +359,6 @@ export async function syncPendingReceptionOperations() {
         await syncOperation(operation);
 
         await deleteSyncItem(operation.id);
-
         changedEventIds.add(operation.eventId);
       } catch (error) {
         console.warn(
@@ -357,7 +366,6 @@ export async function syncPendingReceptionOperations() {
           error,
         );
 
-        // processingのまま残さず、次回オンライン時に再試行できるように戻す。
         try {
           await updateSyncItemStatus(
             operation.id,
