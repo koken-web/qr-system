@@ -160,7 +160,7 @@ function openDatabase(): Promise<IDBDatabase> {
       DB_VERSION,
     );
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const upgradeTransaction = request.transaction;
 
       if (!upgradeTransaction) {
@@ -173,7 +173,7 @@ function openDatabase(): Promise<IDBDatabase> {
       upgradeDatabase(
         request.result,
         upgradeTransaction,
-        request.oldVersion,
+        event.oldVersion,
       );
     };
 
