@@ -74,6 +74,50 @@ export async function saveTickets(tickets: Ticket[]): Promise<void> {
   await verifyTicketsStored(expectedCounts);
 }
 
+export async function replaceTicketsForEvent(eventId: string, tickets: Ticket[]): Promise<void> {
+  if (!eventId) {
+    throw new Error("イベントIDが指定されていません。");
+  }
+
+  const normalizedTickets = tickets.map((ticket) => ({
+    ...ticket,
+    eventId,
+  }));
+
+  getExpectedCounts(normalizedTickets);
+
+  const database = await getDatabase();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(DB_STORES.tickets, "readwrite");
+    const store = transaction.objectStore(DB_STORES.tickets);
+    const index = store.index("eventId");
+    const cursorRequest = index.openKeyCursor(IDBKeyRange.only(eventId));
+
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) {
+        for (const ticket of normalizedTickets) {
+          store.put(ticket);
+        }
+        return;
+      }
+
+      cursor.delete();
+      cursor.continue();
+    };
+
+    cursorRequest.onerror = () => {
+      reject(cursorRequest.error ?? new Error("Failed to replace tickets."));
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("Failed to replace tickets."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Ticket replacement transaction was aborted."));
+  });
+
+  await verifyTicketsStored(new Map([[eventId, normalizedTickets.length]]));
+}
+
 export async function getTicketByQrCredentials(eventId: string, qrNumber: string, authToken: string): Promise<Ticket | undefined> {
   const database = await getDatabase();
   const transaction = database.transaction(DB_STORES.tickets, "readonly");
