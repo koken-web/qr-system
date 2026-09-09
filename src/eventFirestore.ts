@@ -25,6 +25,10 @@ import {
   type EventEndResult,
 } from "./eventEndFirestore";
 
+import {
+  saveEvent,
+} from "./localdb/eventLocal";
+
 export type EventStatus =
   | "scheduled"
   | "active"
@@ -162,6 +166,34 @@ function convertEventSnapshot(
     );
 }
 
+function toLocalEvent(
+  event: EventData
+) {
+  const now = Date.now();
+  const status = event.status ?? "scheduled";
+
+  return {
+    id: event.id,
+    name: event.name,
+    date: event.date,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    status,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function saveEventsToLocalDb(
+  events: EventData[]
+): Promise<void> {
+  await Promise.all(
+    events.map((event) =>
+      saveEvent(toLocalEvent(event))
+    )
+  );
+}
+
 export function subscribeToEvents(
   onEventsChanged: (
     events: EventData[],
@@ -193,6 +225,15 @@ export function subscribeToEvents(
         convertEventSnapshot(
           snapshot
         );
+
+      void saveEventsToLocalDb(events).catch(
+        (error) => {
+          console.error(
+            "イベントのIndexedDB保存に失敗しました。",
+            error
+          );
+        }
+      );
 
       onEventsChanged(
         events,
