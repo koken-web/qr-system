@@ -18,9 +18,8 @@ const CameraQrScanner = lazy(() =>
 );
 
 import {
-  processTicketEntryInFirestore,
-  processTicketExitInFirestore,
-} from "../ticketFirestore";
+  processTicketReceptionByEventName,
+} from "../services/receptionService";
 
 import {
   processMemberReceptionInFirestore,
@@ -1031,17 +1030,15 @@ function ReceptionPage({
       ) => {
         try {
           const result =
-            isEntry
-              ? await processTicketEntryInFirestore(
-                  eventName,
-                  parsedQr.qrNumber,
-                  parsedQr.authToken
-                )
-              : await processTicketExitInFirestore(
-                  eventName,
-                  parsedQr.qrNumber,
-                  parsedQr.authToken
-                );
+            await processTicketReceptionByEventName(
+              eventName,
+              parsedQr.qrNumber,
+              parsedQr.authToken,
+              isEntry
+                ? "entry"
+                : "exit",
+              receptionDeviceId
+            );
 
           if (
             !result.success
@@ -1120,23 +1117,15 @@ function ReceptionPage({
           showTicketSuccess(
             result.ticket.qrNumber,
 
-            isEntry
-              ? result.syncStatus ===
-                  "pending"
-                ? result.isReEntry
-                  ? "再入場を端末に保存しました（通信復旧後に自動同期）"
-                  : "入場を端末に保存しました（通信復旧後に自動同期）"
-                : result.isReEntry
-                  ? "再入場を受け付けました"
-                  : "入場を受け付けました"
-              : result.syncStatus ===
-                  "pending"
-                ? "退出を端末に保存しました（通信復旧後に自動同期）"
-                : "退出を受け付けました"
+            result.isReEntry
+              ? "再入場を端末に保存しました（通信復旧後に自動同期）"
+              : isEntry
+                ? "入場を端末に保存しました（通信復旧後に自動同期）"
+                : "退出を端末に保存しました（通信復旧後に自動同期）"
           );
         } catch (error) {
           console.error(
-            `Firestoreでの${
+            `IndexedDBでの${
               isEntry
                 ? "入場"
                 : "退出"
@@ -1152,6 +1141,7 @@ function ReceptionPage({
       },
       [
         isEntry,
+        receptionDeviceId,
         showError,
         showTicketSuccess,
       ]
