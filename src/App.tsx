@@ -78,6 +78,14 @@ import {
 } from "./firestorePaths";
 
 import {
+  getEvents,
+} from "./localdb/eventLocal";
+
+import {
+  replaceTicketsForEvent,
+} from "./localdb/ticketLocal";
+
+import {
   useDeviceAccess,
 } from "./deviceAccessContext";
 
@@ -1011,8 +1019,25 @@ function App() {
         unsubscribeFunctions.push(
           subscribeToTickets(
             eventName,
-            () => {
-              // チケットを端末へ保存します。
+            (tickets) => {
+              void replaceTicketsForEvent(
+                eventStore.currentEventId ?? "",
+                tickets.map((ticket) => ({
+                  id: ticket.id,
+                  eventId: eventStore.currentEventId ?? "",
+                  qrNumber: ticket.qrNumber,
+                  authToken: ticket.authToken,
+                  createdAt: Number.isFinite(Date.parse(ticket.createdAt))
+                    ? Date.parse(ticket.createdAt)
+                    : Date.now(),
+                  updatedAt: Date.now(),
+                }))
+              ).catch((error) => {
+                console.error(
+                  "チケットのIndexedDB保存に失敗しました。",
+                  error
+                );
+              });
             },
             handleCacheError
           ),
@@ -1046,6 +1071,7 @@ function App() {
     };
   }, [
     currentEvent?.name,
+    eventStore.currentEventId,
   ]);
 
   const currentEventStatus =
