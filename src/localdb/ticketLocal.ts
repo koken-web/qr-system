@@ -56,8 +56,10 @@ export async function saveTickets(
   });
 }
 
-export async function getTicketByQrToken(
-  qrToken: string,
+export async function getTicketByQrCredentials(
+  eventId: string,
+  qrNumber: string,
+  authToken: string,
 ): Promise<Ticket | undefined> {
   const database = await getDatabase();
   const transaction = database.transaction(
@@ -67,11 +69,16 @@ export async function getTicketByQrToken(
   const store = transaction.objectStore(
     DB_STORES.tickets,
   );
-  const index = store.index("qrToken");
-
-  return requestToPromise(
-    index.get(qrToken),
+  const index = store.index("eventId_qrNumber");
+  const ticket = await requestToPromise(
+    index.get([eventId, qrNumber]),
   );
+
+  if (!ticket || ticket.authToken !== authToken) {
+    return undefined;
+  }
+
+  return ticket;
 }
 
 export async function getTickets(
