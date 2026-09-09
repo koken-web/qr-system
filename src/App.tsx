@@ -81,6 +81,19 @@ import {
   useDeviceAccess,
 } from "./deviceAccessContext";
 
+import {
+  saveEvent as saveEventToLocal,
+} from "./localdb/eventLocal";
+
+import {
+  saveTickets as saveTicketsToLocal,
+} from "./localdb/ticketLocal";
+
+import type {
+  Event as LocalEvent,
+  Ticket as LocalTicket,
+} from "./localdb/types";
+
 type NewEventData = {
   name: string;
   date: string;
@@ -305,118 +318,49 @@ function getRuntimeStatus(
   return "active";
 }
 
-function findClosestSelectableEvent(
-  events: EventData[]
-) {
-  const today =
-    new Date();
+function toLocalEvent(
+  event: EventData
+): LocalEvent {
+  const timestamp =
+    Date.now();
 
-  today.setHours(
-    0,
-    0,
-    0,
-    0
-  );
+  return {
+    id: event.id,
+    name: event.name,
+    date: event.date,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    status: getRuntimeStatus(event),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
 
-  const todayTime =
-    today.getTime();
+function toLocalTicket(
+  eventId: string,
+  ticket: {
+    id: string;
+    qrNumber: string;
+    authToken: string;
+    createdAt: string;
+  }
+): LocalTicket {
+  const parsedCreatedAt =
+    Date.parse(ticket.createdAt);
 
-  return (
-    events
-      .filter(
-        (event) =>
-          getRuntimeStatus(
-            event
-          ) !== "ended"
-      )
-      .map((event) => {
-        const eventDate =
-          createEventDateTime(
-            event.date,
-            "00:00"
-          );
+  const createdAt =
+    Number.isFinite(parsedCreatedAt)
+      ? parsedCreatedAt
+      : Date.now();
 
-        return {
-          event,
-          eventTime:
-            eventDate?.getTime() ??
-            Number.NaN,
-        };
-      })
-      .filter(
-        ({ eventTime }) =>
-          Number.isFinite(
-            eventTime
-          )
-      )
-      .sort(
-        (
-          first,
-          second
-        ) => {
-          const firstDistance =
-            Math.abs(
-              first.eventTime -
-                todayTime
-            );
-
-          const secondDistance =
-            Math.abs(
-              second.eventTime -
-                todayTime
-            );
-
-          if (
-            firstDistance !==
-            secondDistance
-          ) {
-            return (
-              firstDistance -
-              secondDistance
-            );
-          }
-
-          const firstIsFuture =
-            first.eventTime >=
-            todayTime;
-
-          const secondIsFuture =
-            second.eventTime >=
-            todayTime;
-
-          if (
-            firstIsFuture !==
-            secondIsFuture
-          ) {
-            return firstIsFuture
-              ? -1
-              : 1;
-          }
-
-          if (
-            first.eventTime !==
-            second.eventTime
-          ) {
-            return (
-              first.eventTime -
-              second.eventTime
-            );
-          }
-
-          const timeOrder =
-            first.event.startTime.localeCompare(
-              second.event.startTime
-            );
-
-          return timeOrder !== 0
-            ? timeOrder
-            : first.event.id.localeCompare(
-                second.event.id
-              );
-        }
-      )[0]?.event ??
-    null
-  );
+  return {
+    id: ticket.id,
+    eventId,
+    qrNumber: ticket.qrNumber,
+    authToken: ticket.authToken,
+    createdAt,
+    updatedAt: createdAt,
+  };
 }
 
 function App() {
@@ -966,7 +910,13 @@ function App() {
     const eventName =
       currentEvent?.name ?? "";
 
-    if (eventName.trim() === "") {
+    const eventId =
+      currentEvent?.id ?? "";
+
+    if (
+      eventName.trim() === "" ||
+      eventId.trim() === ""
+    ) {
       return;
     }
 
@@ -985,6 +935,24 @@ function App() {
         );
       }
     };
+
+    const saveEventToLocalDatabase =
+      async () => {
+        try {
+          await saveEventToLocal(
+            toLocalEvent(
+              currentEvent
+            )
+          );
+        } catch (error) {
+          console.warn(
+            "イベント情報のIndexedDB保存に失敗しました。",
+            error
+          );
+        }
+      };
+
+    void saveEventToLocalDatabase();
 
     void Promise.all([
       import(
@@ -1011,8 +979,30 @@ function App() {
         unsubscribeFunctions.push(
           subscribeToTickets(
             eventName,
-            () => {
-              // チケットを端末へ保存します。
+            (tickets) => {
+              if (
+                tickets.length === 0
+              ) {
+                return;
+              }
+
+              const localTickets =
+                tickets.map(
+                  (ticket) =>
+                    toLocalTicket(
+                      eventId,
+                      ticket
+                    )
+                );
+
+              void saveTicketsToLocal(
+                localTickets
+              ).catch((error) => {
+                console.warn(
+                  "チケット情報のIndexedDB保存に失敗しました。",
+                  error
+                );
+              });
             },
             handleCacheError
           ),
@@ -1045,6 +1035,8 @@ function App() {
       );
     };
   }, [
+    currentEvent,
+    currentEvent?.id,
     currentEvent?.name,
   ]);
 
