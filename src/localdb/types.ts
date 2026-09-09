@@ -50,8 +50,8 @@ export type Event = {
 export type Ticket = {
   id: string;
   eventId: string;
-  ticketNumber: string;
-  qrToken: string;
+  qrNumber: string;
+  authToken: string;
   createdAt: number;
   updatedAt: number;
 };
