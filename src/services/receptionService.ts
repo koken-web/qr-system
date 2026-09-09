@@ -1,6 +1,9 @@
 import { getEvent, getEvents } from "../localdb/eventLocal";
 import { getTicketByQrCredentials } from "../localdb/ticketLocal";
-import { saveReceptionEventWithSyncQueue } from "../localdb/receptionEventLocal";
+import {
+  getTicketReceptionHistory,
+  saveReceptionEventWithSyncQueue,
+} from "../localdb/receptionEventLocal";
 import type { ReceptionEvent, SyncQueueItem } from "../localdb/types";
 
 export type ReceptionErrorCode =
@@ -16,12 +19,25 @@ export type ReceptionResult =
       receptionEventId: string;
       type: "entry" | "exit";
       ticketId: string;
+      ticket: {
+        qrNumber: string;
+      };
       timestamp: number;
+      syncStatus: "pending";
+      isReEntry: boolean;
     }
   | {
       success: false;
       code: ReceptionErrorCode;
       message: string;
+      reason:
+        | "not-cached"
+        | "invalid"
+        | "already-inside"
+        | "not-entered"
+        | "already-exited"
+        | "save-failed"
+        | "unknown";
     };
 
 function createReceptionEventId(): string {
@@ -40,11 +56,20 @@ function createReceptionEventId(): string {
 function createReceptionError(
   code: ReceptionErrorCode,
   message: string,
+  reason:
+    | "not-cached"
+    | "invalid"
+    | "already-inside"
+    | "not-entered"
+    | "already-exited"
+    | "save-failed"
+    | "unknown",
 ): ReceptionResult {
   return {
     success: false,
     code,
     message,
+    reason,
   };
 }
 
@@ -64,6 +89,7 @@ export async function processTicketReception(
     return createReceptionError(
       "INVALID_REQUEST",
       "受付情報が不足しています。",
+      "unknown",
     );
   }
 
@@ -74,6 +100,7 @@ export async function processTicketReception(
     return createReceptionError(
       "INVALID_REQUEST",
       "受付種別が不正です。",
+      "unknown",
     );
   }
 
@@ -84,6 +111,7 @@ export async function processTicketReception(
       return createReceptionError(
         "EVENT_NOT_READY",
         "この端末にイベントデータが準備されていません。",
+        "not-cached",
       );
     }
 
@@ -97,8 +125,23 @@ export async function processTicketReception(
       return createReceptionError(
         "TICKET_NOT_FOUND",
         "このイベントのチケットが見つかりません。",
+        "invalid",
       );
     }
+
+    // 現在の入退場状態を直接書き換えて判定するのではなく、
+    // これまでのReceptionEventを確認して再入場かどうかだけを求める。
+    // オフライン中は他端末の最新状態を知れないため、状態による受付拒否は行わない。
+    const history = await getTicketReceptionHistory(
+      eventId,
+      ticket.id,
+    );
+    const isReEntry =
+      type === "entry" &&
+      history.some(
+        (receptionEvent) =>
+          receptionEvent.type === "entry",
+      );
 
     const timestamp = Date.now();
     const receptionEvent: ReceptionEvent = {
@@ -136,6 +179,7 @@ export async function processTicketReception(
       return createReceptionError(
         "LOCAL_SAVE_FAILED",
         "受付情報を端末に保存できませんでした。",
+        "save-failed",
       );
     }
 
@@ -145,12 +189,18 @@ export async function processTicketReception(
         receptionEvent.id,
       type,
       ticketId: ticket.id,
+      ticket: {
+        qrNumber: ticket.qrNumber,
+      },
       timestamp,
+      syncStatus: "pending",
+      isReEntry,
     };
   } catch {
     return createReceptionError(
       "UNKNOWN_ERROR",
       "受付処理中に予期しないエラーが発生しました。",
+      "unknown",
     );
   }
 }
@@ -175,6 +225,7 @@ export async function processTicketReceptionByEventName(
     return createReceptionError(
       "INVALID_REQUEST",
       "イベント情報が不足しています。",
+      "unknown",
     );
   }
 
@@ -187,6 +238,7 @@ export async function processTicketReceptionByEventName(
       return createReceptionError(
         "EVENT_NOT_READY",
         "この端末にイベントデータが準備されていません。",
+        "not-cached",
       );
     }
 
@@ -201,6 +253,7 @@ export async function processTicketReceptionByEventName(
     return createReceptionError(
       "UNKNOWN_ERROR",
       "受付処理中に予期しないエラーが発生しました。",
+      "unknown",
     );
   }
 }
