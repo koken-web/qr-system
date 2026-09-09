@@ -1,5 +1,5 @@
 import { DB_STORES, getDatabase } from "./db";
-import type { ReceptionEvent } from "./types";
+import type { ReceptionEvent, SyncQueueItem } from "./types";
 
 function requestToPromise<T>(
   request: IDBRequest<T>,
@@ -18,22 +18,11 @@ function requestToPromise<T>(
   });
 }
 
-export async function saveReceptionEvent(
-  receptionEvent: ReceptionEvent,
+function waitForTransaction(
+  transaction: IDBTransaction,
+  errorMessage: string,
 ): Promise<void> {
-  const database = await getDatabase();
-
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(
-      DB_STORES.receptionEvents,
-      "readwrite",
-    );
-    const store = transaction.objectStore(
-      DB_STORES.receptionEvents,
-    );
-
-    store.add(receptionEvent);
-
     transaction.oncomplete = () => {
       resolve();
     };
@@ -41,17 +30,74 @@ export async function saveReceptionEvent(
     transaction.onerror = () => {
       reject(
         transaction.error ??
-          new Error("Failed to save reception event."),
+          new Error(errorMessage),
       );
     };
 
     transaction.onabort = () => {
       reject(
         transaction.error ??
-          new Error("Reception event save transaction was aborted."),
+          new Error(`${errorMessage} Transaction was aborted.`),
       );
     };
   });
+}
+
+export async function saveReceptionEvent(
+  receptionEvent: ReceptionEvent,
+): Promise<void> {
+  const database = await getDatabase();
+
+  const transaction = database.transaction(
+    DB_STORES.receptionEvents,
+    "readwrite",
+  );
+  const store = transaction.objectStore(
+    DB_STORES.receptionEvents,
+  );
+
+  store.add(receptionEvent);
+
+  await waitForTransaction(
+    transaction,
+    "Failed to save reception event.",
+  );
+}
+
+export async function saveReceptionEventWithSyncQueue(
+  receptionEvent: ReceptionEvent,
+  syncQueueItem: SyncQueueItem,
+): Promise<void> {
+  if (receptionEvent.id !== syncQueueItem.id) {
+    throw new Error(
+      "受付イベントと同期キューのIDが一致していません。",
+    );
+  }
+
+  if (receptionEvent.eventId !== syncQueueItem.eventId) {
+    throw new Error(
+      "受付イベントと同期キューのイベントIDが一致していません。",
+    );
+  }
+
+  const database = await getDatabase();
+  const transaction = database.transaction(
+    [DB_STORES.receptionEvents, DB_STORES.syncQueue],
+    "readwrite",
+  );
+
+  transaction
+    .objectStore(DB_STORES.receptionEvents)
+    .add(receptionEvent);
+
+  transaction
+    .objectStore(DB_STORES.syncQueue)
+    .add(syncQueueItem);
+
+  await waitForTransaction(
+    transaction,
+    "受付情報と同期キューを保存できませんでした。",
+  );
 }
 
 export async function getReceptionEvents(
