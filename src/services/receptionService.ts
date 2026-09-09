@@ -1,5 +1,5 @@
-import { getEvent } from "../localdb/eventLocal";
-import { getTicketByQrToken } from "../localdb/ticketLocal";
+import { getEvent, getEvents } from "../localdb/eventLocal";
+import { getTicketByQrCredentials } from "../localdb/ticketLocal";
 import { saveReceptionEvent } from "../localdb/receptionEventLocal";
 import { enqueueSyncItem } from "../localdb/syncQueueLocal";
 import type { ReceptionEvent, SyncQueueItem } from "../localdb/types";
@@ -49,13 +49,6 @@ function createReceptionError(
   };
 }
 
-function createLocalQrToken(
-  qrNumber: string,
-  authToken: string,
-): string {
-  return `${qrNumber}:${authToken}`;
-}
-
 export async function processTicketReception(
   eventId: string,
   qrNumber: string,
@@ -95,17 +88,13 @@ export async function processTicketReception(
       );
     }
 
-    const ticket = await getTicketByQrToken(
-      createLocalQrToken(
-        qrNumber,
-        authToken,
-      ),
+    const ticket = await getTicketByQrCredentials(
+      eventId,
+      qrNumber,
+      authToken,
     );
 
-    if (
-      !ticket ||
-      ticket.eventId !== eventId
-    ) {
+    if (!ticket) {
       return createReceptionError(
         "TICKET_NOT_FOUND",
         "このイベントのチケットが見つかりません。",
@@ -153,8 +142,8 @@ export async function processTicketReception(
         syncQueueItem,
       );
     } catch {
-      // ReceptionEvent itself is already safely stored locally.
-      // Sync recovery can use the local reception history.
+      // The reception event is already persisted locally.
+      // The sync layer can recover the event from local history later.
     }
 
     return {
@@ -165,6 +154,56 @@ export async function processTicketReception(
       ticketId: ticket.id,
       timestamp,
     };
+  } catch {
+    return createReceptionError(
+      "UNKNOWN_ERROR",
+      "受付処理中に予期しないエラーが発生しました。",
+    );
+  }
+}
+
+async function resolveEventIdByName(
+  eventName: string,
+): Promise<string | undefined> {
+  const events = await getEvents();
+  return events.find(
+    (event) => event.name === eventName,
+  )?.id;
+}
+
+export async function processTicketReceptionByEventName(
+  eventName: string,
+  qrNumber: string,
+  authToken: string,
+  type: "entry" | "exit",
+  deviceId: string,
+): Promise<ReceptionResult> {
+  if (!eventName) {
+    return createReceptionError(
+      "INVALID_REQUEST",
+      "イベント情報が不足しています。",
+    );
+  }
+
+  try {
+    const eventId = await resolveEventIdByName(
+      eventName,
+    );
+
+    if (!eventId) {
+      return createReceptionError(
+        "EVENT_NOT_READY",
+        "この端末にイベントデータが準備されていません。",
+      );
+    }
+
+    return processTicketReception(
+      eventId,
+      qrNumber,
+      authToken,
+      type,
+      deviceId,
+    );
   } catch {
     return createReceptionError(
       "UNKNOWN_ERROR",
