@@ -31,24 +31,38 @@ type AuthScreenState =
   | "ready"
   | "error";
 
-function getAnonymousAuthErrorMessage(error: unknown) {
+function getFirebaseErrorDetails(error: unknown) {
   const code =
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
     typeof error.code === "string"
       ? error.code
-      : "";
+      : "unknown";
+
+  const message =
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+      ? error.message
+      : String(error);
+
+  return { code, message };
+}
+
+function getAnonymousAuthErrorMessage(error: unknown) {
+  const { code } = getFirebaseErrorDetails(error);
 
   switch (code) {
     case "auth/operation-not-allowed":
       return "Firebaseで匿名認証がまだ有効になっていません。";
     case "auth/network-request-failed":
-      return "初回の自動接続にはインターネット接続が必要です。オンラインにして、もう一度お試しください。";
+      return "Firebase Authenticationへの通信に失敗しました。Wi-Fi接続だけでなく、Firebaseへの通信が許可されているか確認してください。";
     case "auth/too-many-requests":
       return "接続が集中しています。少し待ってから、もう一度お試しください。";
     default:
-      return "受付システムへ接続できませんでした。通信状態を確認してください。";
+      return "Firebase Authenticationへの接続に失敗しました。下に表示されるエラーコードを確認してください。";
   }
 }
 
@@ -63,6 +77,8 @@ function AuthLogo() {
 function DeviceAuthGate({ children, onScreenStateChange }: DeviceAuthGateProps) {
   const [screenState, setScreenState] = useState<AuthScreenState>("checking");
   const [errorMessage, setErrorMessage] = useState("");
+  const [errorCode, setErrorCode] = useState("");
+  const [errorDetails, setErrorDetails] = useState("");
   const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
@@ -86,6 +102,8 @@ function DeviceAuthGate({ children, onScreenStateChange }: DeviceAuthGateProps) 
       }
 
       setErrorMessage("");
+      setErrorCode("");
+      setErrorDetails("");
       setScreenState("ready");
       return true;
     };
@@ -103,6 +121,7 @@ function DeviceAuthGate({ children, onScreenStateChange }: DeviceAuthGateProps) 
       } catch (error) {
         if (!active) return;
 
+        const details = getFirebaseErrorDetails(error);
         console.error("受付システムの自動認証に失敗しました。", error);
 
         if (await allowCachedOfflineSession()) {
@@ -110,6 +129,8 @@ function DeviceAuthGate({ children, onScreenStateChange }: DeviceAuthGateProps) 
         }
 
         setErrorMessage(getAnonymousAuthErrorMessage(error));
+        setErrorCode(details.code);
+        setErrorDetails(details.message);
         setScreenState("error");
       }
     };
@@ -120,6 +141,9 @@ function DeviceAuthGate({ children, onScreenStateChange }: DeviceAuthGateProps) 
         if (!active) return;
 
         if (user !== null) {
+          setErrorMessage("");
+          setErrorCode("");
+          setErrorDetails("");
           setScreenState("ready");
           return;
         }
@@ -129,11 +153,16 @@ function DeviceAuthGate({ children, onScreenStateChange }: DeviceAuthGateProps) 
       (error) => {
         if (!active) return;
 
+        const details = getFirebaseErrorDetails(error);
         console.error("自動認証の状態を読み込めませんでした。", error);
         void allowCachedOfflineSession().then((allowed) => {
           if (!active || allowed) return;
 
-          setErrorMessage("受付システムへ接続できませんでした。通信状態を確認してください。");
+          setErrorMessage(
+            "Firebase Authenticationの状態取得に失敗しました。下に表示されるエラーコードを確認してください。"
+          );
+          setErrorCode(details.code);
+          setErrorDetails(details.message);
           setScreenState("error");
         });
       }
@@ -179,12 +208,60 @@ function DeviceAuthGate({ children, onScreenStateChange }: DeviceAuthGateProps) 
           <div className="device-auth-message">
             <h1>接続できませんでした</h1>
             <p role="alert">{errorMessage}</p>
+
+            {errorCode && (
+              <div
+                style={{
+                  marginTop: "16px",
+                  padding: "12px",
+                  borderRadius: "10px",
+                  background: "rgba(0, 0, 0, 0.06)",
+                  textAlign: "left",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                <strong>Firebaseエラーコード</strong>
+                <div
+                  style={{
+                    marginTop: "4px",
+                    fontFamily: "monospace",
+                    fontSize: "14px",
+                  }}
+                >
+                  {errorCode}
+                </div>
+                {errorDetails && (
+                  <>
+                    <strong
+                      style={{
+                        display: "block",
+                        marginTop: "10px",
+                      }}
+                    >
+                      Firebaseエラー詳細
+                    </strong>
+                    <div
+                      style={{
+                        marginTop: "4px",
+                        fontSize: "13px",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {errorDetails}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="device-auth-actions">
               <button
                 type="button"
                 onClick={() => {
                   setScreenState("checking");
                   setErrorMessage("");
+                  setErrorCode("");
+                  setErrorDetails("");
                   setRetryCount((currentCount) => currentCount + 1);
                 }}
               >
