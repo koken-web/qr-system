@@ -98,40 +98,15 @@ function createReceptionError(
   };
 }
 
-async function createReceptionEvent(
-  eventId: string,
-  subjectType: "ticket" | "member",
-  qrNumber: string,
-  type: "entry" | "exit",
-  deviceId: string,
-  ticketId?: string,
-  memberId?: string,
-): Promise<ReceptionEvent> {
-  const timestamp = Date.now();
-
-  const receptionEvent: ReceptionEvent = {
-    id: createReceptionEventId(),
-    eventId,
-    subjectType,
-    ...(ticketId ? { ticketId } : {}),
-    ...(memberId ? { memberId } : {}),
-    qrNumber,
-    type,
-    timestamp,
-    deviceId,
-    offline:
-      typeof navigator !== "undefined"
-        ? !navigator.onLine
-        : true,
-    createdAt: timestamp,
-  };
-
+async function saveReceptionEvent(
+  receptionEvent: ReceptionEvent,
+): Promise<void> {
   const syncQueueItem: SyncQueueItem = {
     id: receptionEvent.id,
-    eventId,
+    eventId: receptionEvent.eventId,
     type: "reception",
     data: receptionEvent,
-    createdAt: timestamp,
+    createdAt: receptionEvent.createdAt,
     retryCount: 0,
     status: "pending",
   };
@@ -140,8 +115,6 @@ async function createReceptionEvent(
     receptionEvent,
     syncQueueItem,
   );
-
-  return receptionEvent;
 }
 
 export async function processTicketReception(
@@ -211,31 +184,25 @@ export async function processTicketReception(
           receptionEvent.type === "entry",
       );
 
-    try {
-      const receptionEvent =
-        await createReceptionEvent(
-          eventId,
-          "ticket",
-          ticket.qrNumber,
-          type,
-          deviceId,
-          ticket.id,
-        );
+    const timestamp = Date.now();
+    const receptionEvent: ReceptionEvent = {
+      id: createReceptionEventId(),
+      eventId,
+      subjectType: "ticket",
+      ticketId: ticket.id,
+      qrNumber: ticket.qrNumber,
+      type,
+      timestamp,
+      deviceId,
+      offline:
+        typeof navigator !== "undefined"
+          ? !navigator.onLine
+          : true,
+      createdAt: timestamp,
+    };
 
-      return {
-        success: true,
-        receptionEventId:
-          receptionEvent.id,
-        type,
-        ticketId: ticket.id,
-        ticket: {
-          qrNumber: ticket.qrNumber,
-        },
-        timestamp:
-          receptionEvent.timestamp,
-        syncStatus: "pending",
-        isReEntry,
-      };
+    try {
+      await saveReceptionEvent(receptionEvent);
     } catch {
       return createReceptionError(
         "LOCAL_SAVE_FAILED",
@@ -243,6 +210,19 @@ export async function processTicketReception(
         "save-failed",
       );
     }
+
+    return {
+      success: true,
+      receptionEventId: receptionEvent.id,
+      type,
+      ticketId: ticket.id,
+      ticket: {
+        qrNumber: ticket.qrNumber,
+      },
+      timestamp,
+      syncStatus: "pending",
+      isReEntry,
+    };
   } catch {
     return createReceptionError(
       "UNKNOWN_ERROR",
@@ -282,12 +262,11 @@ export async function processMemberReception(
       };
     }
 
-    const member =
-      await getMemberByQrCredentials(
-        eventId,
-        qrNumber,
-        authToken,
-      );
+    const member = await getMemberByQrCredentials(
+      eventId,
+      qrNumber,
+      authToken,
+    );
 
     if (!member) {
       return {
@@ -298,36 +277,29 @@ export async function processMemberReception(
 
     const timestamp = Date.now();
     const nextStatus =
-      type === "entry"
-        ? "inside"
-        : "outside";
+      type === "entry" ? "inside" : "outside";
+    const receptionEvent: ReceptionEvent = {
+      id: createReceptionEventId(),
+      eventId,
+      subjectType: "member",
+      memberId: member.id,
+      qrNumber,
+      type,
+      timestamp,
+      deviceId,
+      offline:
+        typeof navigator !== "undefined"
+          ? !navigator.onLine
+          : true,
+      createdAt: timestamp,
+    };
 
     try {
-      await saveReceptionEventWithSyncQueue(
-        {
-          id: createReceptionEventId(),
-          eventId,
-          subjectType: "member",
-          memberId: member.id,
-          qrNumber,
-          type,
-          timestamp,
-          deviceId,
-          offline:
-            typeof navigator !== "undefined"
-              ? !navigator.onLine
-              : true,
-          createdAt: timestamp,
-        },
-        {
-          id: "",
-          eventId,
-          type: "reception",
-          data: null,
-          createdAt: timestamp,
-          retryCount: 0,
-          status: "pending",
-        },
+      await saveReceptionEvent(receptionEvent);
+      await updateMemberStatus(
+        member.id,
+        nextStatus,
+        timestamp,
       );
     } catch {
       return {
@@ -341,12 +313,6 @@ export async function processMemberReception(
       status: nextStatus,
       updatedAt: timestamp,
     };
-
-    await updateMemberStatus(
-      member.id,
-      nextStatus,
-      timestamp,
-    );
 
     return {
       success: true,
@@ -387,9 +353,7 @@ export async function processTicketReceptionByEventName(
   }
 
   try {
-    const eventId = await resolveEventIdByName(
-      eventName,
-    );
+    const eventId = await resolveEventIdByName(eventName);
 
     if (!eventId) {
       return createReceptionError(
@@ -430,9 +394,7 @@ export async function processMemberReceptionByEventName(
   }
 
   try {
-    const eventId = await resolveEventIdByName(
-      eventName,
-    );
+    const eventId = await resolveEventIdByName(eventName);
 
     if (!eventId) {
       return {
