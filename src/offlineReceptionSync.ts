@@ -6,68 +6,60 @@ import {
   type DocumentSnapshot,
 } from "firebase/firestore";
 
-import {
-  db,
-} from "./firebase";
+import { db } from "./firebase";
 
 import {
   ACTIVITY_COLLECTION,
   EVENT_DATA_COLLECTION,
   RECEPTION_EVENTS_COLLECTION,
   TICKETS_COLLECTION,
+  EVENT_MEMBERS_COLLECTION,
   getEventDataId,
 } from "./firestorePaths";
 
-import {
-  getEvent,
-} from "./localdb/eventLocal";
-
-import {
-  getTicketById,
-} from "./localdb/ticketLocal";
-
+import { getEvent } from "./localdb/eventLocal";
+import { getTicketById } from "./localdb/ticketLocal";
+import { getMembers } from "./localdb/memberLocal";
 import {
   getPendingSyncItems,
   updateSyncItemStatus,
   deleteSyncItem,
 } from "./localdb/syncQueueLocal";
-
-import type {
-  ReceptionEvent,
-  SyncQueueItem,
-} from "./localdb/types";
-
+import type { ReceptionEvent, SyncQueueItem } from "./localdb/types";
 import {
   getEventAnalyticsDocumentByDataId,
   markEventAnalyticsStaleInTransaction,
   rebuildEventAnalyticsByDataId,
 } from "./eventAnalyticsFirestore";
 
-const RETRY_INTERVAL_MILLISECONDS =
-  15 * 1000;
+const RETRY_INTERVAL_MILLISECONDS = 15 * 1000;
 
 let syncInProgress = false;
 let syncStarted = false;
 
-function isReceptionEvent(
-  value: unknown,
-): value is ReceptionEvent {
-  if (
-    typeof value !== "object" ||
-    value === null
-  ) {
+function isReceptionEvent(value: unknown): value is ReceptionEvent {
+  if (typeof value !== "object" || value === null) {
     return false;
   }
 
   const event = value as Partial<ReceptionEvent>;
+
+  const hasSubjectId =
+    event.subjectType === "ticket"
+      ? typeof event.ticketId === "string" && event.ticketId.length > 0
+      : event.subjectType === "member"
+        ? typeof event.memberId === "string" && event.memberId.length > 0
+        : false;
 
   return (
     typeof event.id === "string" &&
     event.id.length > 0 &&
     typeof event.eventId === "string" &&
     event.eventId.length > 0 &&
-    typeof event.ticketId === "string" &&
-    event.ticketId.length > 0 &&
+    (event.subjectType === "ticket" || event.subjectType === "member") &&
+    hasSubjectId &&
+    typeof event.qrNumber === "string" &&
+    event.qrNumber.length > 0 &&
     (event.type === "entry" || event.type === "exit") &&
     Number.isFinite(event.timestamp) &&
     typeof event.deviceId === "string" &&
@@ -77,13 +69,8 @@ function isReceptionEvent(
   );
 }
 
-function getReceptionEvent(
-  item: SyncQueueItem,
-): ReceptionEvent {
-  if (
-    item.type !== "reception" ||
-    !isReceptionEvent(item.data)
-  ) {
+function getReceptionEvent(item: SyncQueueItem): ReceptionEvent {
+  if (item.type !== "reception" || !isReceptionEvent(item.data)) {
     throw new Error("同期キューの受付データが不正です。");
   }
 
@@ -108,9 +95,7 @@ function shouldApplyStatus(
     return true;
   }
 
-  return (
-    capturedAt.localeCompare(currentLastReceptionAt) >= 0
-  );
+  return capturedAt.localeCompare(currentLastReceptionAt) >= 0;
 }
 
 type EndedEventState = {
@@ -122,23 +107,15 @@ function getEndedEventState(
   snapshot: DocumentSnapshot<DocumentData>,
 ): EndedEventState {
   if (!snapshot.exists()) {
-    return {
-      ended: false,
-      endedAt: null,
-    };
+    return { ended: false, endedAt: null };
   }
 
   const data = snapshot.data();
-  const ended =
-    data.status === "ended" ||
-    typeof data.endedAt === "string";
-
   return {
-    ended,
+    ended:
+      data.status === "ended" || typeof data.endedAt === "string",
     endedAt:
-      typeof data.endedAt === "string"
-        ? data.endedAt
-        : null,
+      typeof data.endedAt === "string" ? data.endedAt : null,
   };
 }
 
@@ -146,9 +123,7 @@ function wasCapturedBeforeEventEnd(
   capturedAt: string,
   endedAt: string | null,
 ) {
-  if (endedAt === null) {
-    return false;
-  }
+  if (endedAt === null) return false;
 
   const capturedTime = Date.parse(capturedAt);
   const endedTime = Date.parse(endedAt);
@@ -160,13 +135,14 @@ function wasCapturedBeforeEventEnd(
   );
 }
 
-async function syncReceptionEvent(
+async function syncTicketReceptionEvent(
   receptionEvent: ReceptionEvent,
 ) {
-  const localEvent = await getEvent(
-    receptionEvent.eventId,
-  );
+  if (!receptionEvent.ticketId) {
+    throw new Error("チケット受付イベントにticketIdがありません。");
+  }
 
+  const localEvent = await getEvent(receptionEvent.eventId);
   if (!localEvent) {
     throw new Error(
       `同期対象イベント ${receptionEvent.eventId} が端末にありません。`,
@@ -177,26 +153,15 @@ async function syncReceptionEvent(
     receptionEvent.eventId,
     receptionEvent.ticketId,
   );
-
   if (!localTicket) {
     throw new Error(
       `同期対象チケット ${receptionEvent.ticketId} が端末にありません。`,
     );
   }
 
-  const eventDataId = getEventDataId(
-    localEvent.name,
-  );
-  const capturedAt = new Date(
-    receptionEvent.timestamp,
-  ).toISOString();
-
-  const eventDocument = doc(
-    db,
-    "events",
-    receptionEvent.eventId,
-  );
-
+  const eventDataId = getEventDataId(localEvent.name);
+  const capturedAt = new Date(receptionEvent.timestamp).toISOString();
+  const eventDocument = doc(db, "events", receptionEvent.eventId);
   const ticketDocument = doc(
     db,
     EVENT_DATA_COLLECTION,
@@ -204,7 +169,6 @@ async function syncReceptionEvent(
     TICKETS_COLLECTION,
     localTicket.qrNumber,
   );
-
   const receptionEventDocument = doc(
     db,
     EVENT_DATA_COLLECTION,
@@ -212,7 +176,6 @@ async function syncReceptionEvent(
     RECEPTION_EVENTS_COLLECTION,
     receptionEvent.id,
   );
-
   const activityDocument = doc(
     db,
     EVENT_DATA_COLLECTION,
@@ -220,140 +183,246 @@ async function syncReceptionEvent(
     ACTIVITY_COLLECTION,
     receptionEvent.id,
   );
+  const analyticsDocument = getEventAnalyticsDocumentByDataId(eventDataId);
 
-  const analyticsDocument =
-    getEventAnalyticsDocumentByDataId(
-      eventDataId,
+  await runTransaction(db, async (transaction) => {
+    const [
+      eventSnapshot,
+      receptionEventSnapshot,
+      activitySnapshot,
+      ticketSnapshot,
+      analyticsSnapshot,
+    ] = await Promise.all([
+      transaction.get(eventDocument),
+      transaction.get(receptionEventDocument),
+      transaction.get(activityDocument),
+      transaction.get(ticketDocument),
+      transaction.get(analyticsDocument),
+    ]);
+
+    if (receptionEventSnapshot.exists()) return;
+
+    if (!ticketSnapshot.exists()) {
+      throw new Error(
+        `同期対象チケット ${localTicket.qrNumber} が見つかりません。`,
+      );
+    }
+
+    const ticketData = ticketSnapshot.data();
+    const endedState = getEndedEventState(eventSnapshot);
+    const capturedBeforeEnd =
+      !endedState.ended ||
+      wasCapturedBeforeEventEnd(capturedAt, endedState.endedAt);
+
+    transaction.set(receptionEventDocument, {
+      id: receptionEvent.id,
+      eventId: receptionEvent.eventId,
+      subjectType: "ticket",
+      ticketId: receptionEvent.ticketId,
+      qrNumber: localTicket.qrNumber,
+      type: receptionEvent.type,
+      timestamp: capturedAt,
+      deviceId: receptionEvent.deviceId,
+      offline: receptionEvent.offline,
+      createdAt: serverTimestamp(),
+    });
+
+    if (!capturedBeforeEnd) return;
+
+    if (
+      !endedState.ended &&
+      shouldApplyStatus(ticketData.lastReceptionAt, capturedAt)
+    ) {
+      transaction.update(ticketDocument, {
+        status:
+          receptionEvent.type === "entry" ? "入場中" : "使用済み",
+        lastReceptionAt: capturedAt,
+        lastReceptionOperationId: receptionEvent.id,
+        updatedAt: serverTimestamp(),
+      });
+    } else if (
+      endedState.ended &&
+      ticketData.status !== "無効"
+    ) {
+      transaction.update(ticketDocument, {
+        status: "使用済み",
+        lastReceptionAt: endedState.endedAt ?? capturedAt,
+        lastReceptionOperationId: receptionEvent.id,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    if (!activitySnapshot.exists()) {
+      transaction.set(activityDocument, {
+        id: receptionEvent.id,
+        type:
+          receptionEvent.type === "entry"
+            ? "ticket-entry"
+            : "ticket-exit",
+        qrNumber: localTicket.qrNumber,
+        timestamp: capturedAt,
+        source: "scanner",
+        offline: receptionEvent.offline,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    markEventAnalyticsStaleInTransaction(
+      transaction,
+      analyticsSnapshot,
     );
-
-  await runTransaction(
-    db,
-    async (transaction) => {
-      const [
-        eventSnapshot,
-        receptionEventSnapshot,
-        activitySnapshot,
-        ticketSnapshot,
-        analyticsSnapshot,
-      ] = await Promise.all([
-        transaction.get(eventDocument),
-        transaction.get(receptionEventDocument),
-        transaction.get(activityDocument),
-        transaction.get(ticketDocument),
-        transaction.get(analyticsDocument),
-      ]);
-
-      if (receptionEventSnapshot.exists()) {
-        return;
-      }
-
-      if (!ticketSnapshot.exists()) {
-        throw new Error(
-          `同期対象チケット ${localTicket.qrNumber} が見つかりません。`,
-        );
-      }
-
-      const ticketData = ticketSnapshot.data();
-      const endedState = getEndedEventState(
-        eventSnapshot,
-      );
-      const capturedBeforeEnd =
-        !endedState.ended ||
-        wasCapturedBeforeEventEnd(
-          capturedAt,
-          endedState.endedAt,
-        );
-
-      transaction.set(
-        receptionEventDocument,
-        {
-          id: receptionEvent.id,
-          eventId: receptionEvent.eventId,
-          ticketId: receptionEvent.ticketId,
-          qrNumber: localTicket.qrNumber,
-          type: receptionEvent.type,
-          timestamp: capturedAt,
-          deviceId: receptionEvent.deviceId,
-          offline: receptionEvent.offline,
-          createdAt: serverTimestamp(),
-        },
-      );
-
-      if (capturedBeforeEnd) {
-        if (
-          !endedState.ended &&
-          shouldApplyStatus(
-            ticketData.lastReceptionAt,
-            capturedAt,
-          )
-        ) {
-          transaction.update(
-            ticketDocument,
-            {
-              status:
-                receptionEvent.type === "entry"
-                  ? "入場中"
-                  : "使用済み",
-              lastReceptionAt: capturedAt,
-              lastReceptionOperationId: receptionEvent.id,
-              updatedAt: serverTimestamp(),
-            },
-          );
-        } else if (
-          endedState.ended &&
-          ticketData.status !== "無効"
-        ) {
-          transaction.update(
-            ticketDocument,
-            {
-              status: "使用済み",
-              lastReceptionAt:
-                endedState.endedAt ?? capturedAt,
-              lastReceptionOperationId:
-                receptionEvent.id,
-              updatedAt: serverTimestamp(),
-            },
-          );
-        }
-
-        if (!activitySnapshot.exists()) {
-          transaction.set(
-            activityDocument,
-            {
-              id: receptionEvent.id,
-              type:
-                receptionEvent.type === "entry"
-                  ? "ticket-entry"
-                  : "ticket-exit",
-              qrNumber: localTicket.qrNumber,
-              timestamp: capturedAt,
-              source: "scanner",
-              offline: receptionEvent.offline,
-              createdAt: serverTimestamp(),
-            },
-          );
-        }
-
-        markEventAnalyticsStaleInTransaction(
-          transaction,
-          analyticsSnapshot,
-        );
-      }
-    },
-  );
+  });
 }
 
-async function syncOperation(
-  item: SyncQueueItem,
+async function syncMemberReceptionEvent(
+  receptionEvent: ReceptionEvent,
 ) {
-  if (item.type !== "reception") {
+  if (!receptionEvent.memberId) {
+    throw new Error("部員受付イベントにmemberIdがありません。");
+  }
+
+  const localEvent = await getEvent(receptionEvent.eventId);
+  if (!localEvent) {
     throw new Error(
-      `未対応の同期キュー種別です: ${item.type}`,
+      `同期対象イベント ${receptionEvent.eventId} が端末にありません。`,
     );
   }
 
+  const localMembers = await getMembers(receptionEvent.eventId);
+  const localMember = localMembers.find(
+    (member) => member.id === receptionEvent.memberId,
+  );
+  if (!localMember) {
+    throw new Error(
+      `同期対象部員 ${receptionEvent.memberId} が端末にありません。`,
+    );
+  }
+
+  const eventDataId = getEventDataId(localEvent.name);
+  const capturedAt = new Date(receptionEvent.timestamp).toISOString();
+  const eventDocument = doc(db, "events", receptionEvent.eventId);
+  const memberDocument = doc(
+    db,
+    EVENT_DATA_COLLECTION,
+    eventDataId,
+    EVENT_MEMBERS_COLLECTION,
+    receptionEvent.qrNumber,
+  );
+  const receptionEventDocument = doc(
+    db,
+    EVENT_DATA_COLLECTION,
+    eventDataId,
+    RECEPTION_EVENTS_COLLECTION,
+    receptionEvent.id,
+  );
+  const activityDocument = doc(
+    db,
+    EVENT_DATA_COLLECTION,
+    eventDataId,
+    ACTIVITY_COLLECTION,
+    receptionEvent.id,
+  );
+  const analyticsDocument = getEventAnalyticsDocumentByDataId(eventDataId);
+
+  await runTransaction(db, async (transaction) => {
+    const [
+      eventSnapshot,
+      receptionEventSnapshot,
+      memberSnapshot,
+      activitySnapshot,
+      analyticsSnapshot,
+    ] = await Promise.all([
+      transaction.get(eventDocument),
+      transaction.get(receptionEventDocument),
+      transaction.get(memberDocument),
+      transaction.get(activityDocument),
+      transaction.get(analyticsDocument),
+    ]);
+
+    if (receptionEventSnapshot.exists()) return;
+
+    if (!memberSnapshot.exists()) {
+      throw new Error(
+        `同期対象部員 ${receptionEvent.qrNumber} が見つかりません。`,
+      );
+    }
+
+    const memberData = memberSnapshot.data();
+    const endedState = getEndedEventState(eventSnapshot);
+    const capturedBeforeEnd =
+      !endedState.ended ||
+      wasCapturedBeforeEventEnd(capturedAt, endedState.endedAt);
+
+    transaction.set(receptionEventDocument, {
+      id: receptionEvent.id,
+      eventId: receptionEvent.eventId,
+      subjectType: "member",
+      memberId: receptionEvent.memberId,
+      qrNumber: receptionEvent.qrNumber,
+      type: receptionEvent.type,
+      timestamp: capturedAt,
+      deviceId: receptionEvent.deviceId,
+      offline: receptionEvent.offline,
+      createdAt: serverTimestamp(),
+    });
+
+    if (!capturedBeforeEnd) return;
+
+    if (shouldApplyStatus(memberData.lastReceptionAt, capturedAt)) {
+      transaction.set(
+        memberDocument,
+        {
+          qrNumber: receptionEvent.qrNumber,
+          name:
+            typeof memberData.name === "string"
+              ? memberData.name
+              : localMember.name,
+          status:
+            receptionEvent.type === "entry"
+              ? "入室中"
+              : "退出済み",
+          lastReceptionAt: capturedAt,
+          lastReceptionOperationId: receptionEvent.id,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+
+    if (!activitySnapshot.exists()) {
+      transaction.set(activityDocument, {
+        id: receptionEvent.id,
+        type:
+          receptionEvent.type === "entry"
+            ? "member-entry"
+            : "member-exit",
+        qrNumber: receptionEvent.qrNumber,
+        timestamp: capturedAt,
+        source: "scanner",
+        offline: receptionEvent.offline,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    markEventAnalyticsStaleInTransaction(
+      transaction,
+      analyticsSnapshot,
+    );
+  });
+}
+
+async function syncOperation(item: SyncQueueItem) {
+  if (item.type !== "reception") {
+    throw new Error(`未対応の同期キュー種別です: ${item.type}`);
+  }
+
   const receptionEvent = getReceptionEvent(item);
-  await syncReceptionEvent(receptionEvent);
+
+  if (receptionEvent.subjectType === "member") {
+    await syncMemberReceptionEvent(receptionEvent);
+  } else {
+    await syncTicketReceptionEvent(receptionEvent);
+  }
 }
 
 export async function syncPendingReceptionOperations() {
@@ -368,17 +437,13 @@ export async function syncPendingReceptionOperations() {
   syncInProgress = true;
 
   try {
-    const operations =
-      await getPendingSyncItems();
+    const operations = await getPendingSyncItems();
     const changedEventIds = new Set<string>();
 
     for (const operation of operations) {
-      if (!navigator.onLine) {
-        break;
-      }
+      if (!navigator.onLine) break;
 
-      const nextRetryCount =
-        operation.retryCount + 1;
+      const nextRetryCount = operation.retryCount + 1;
 
       try {
         await updateSyncItemStatus(
@@ -386,9 +451,7 @@ export async function syncPendingReceptionOperations() {
           "processing",
           nextRetryCount,
         );
-
         await syncOperation(operation);
-
         await deleteSyncItem(operation.id);
         changedEventIds.add(operation.eventId);
       } catch (error) {
@@ -410,18 +473,14 @@ export async function syncPendingReceptionOperations() {
           );
         }
 
-        if (!navigator.onLine) {
-          break;
-        }
+        if (!navigator.onLine) break;
       }
     }
 
     for (const eventId of changedEventIds) {
       try {
         const localEvent = await getEvent(eventId);
-        if (!localEvent) {
-          continue;
-        }
+        if (!localEvent) continue;
 
         await rebuildEventAnalyticsByDataId(
           getEventDataId(localEvent.name),
@@ -439,35 +498,16 @@ export async function syncPendingReceptionOperations() {
 }
 
 export function startOfflineReceptionSync() {
-  if (
-    syncStarted ||
-    typeof window === "undefined"
-  ) {
-    return;
-  }
+  if (syncStarted || typeof window === "undefined") return;
 
   syncStarted = true;
 
   const requestSync = () => {
-    if (!navigator.onLine) {
-      return;
-    }
-
+    if (!navigator.onLine) return;
     void syncPendingReceptionOperations();
   };
 
-  window.addEventListener(
-    "online",
-    requestSync,
-  );
-
-  window.setInterval(
-    requestSync,
-    RETRY_INTERVAL_MILLISECONDS,
-  );
-
-  window.setTimeout(
-    requestSync,
-    0,
-  );
+  window.addEventListener("online", requestSync);
+  window.setInterval(requestSync, RETRY_INTERVAL_MILLISECONDS);
+  window.setTimeout(requestSync, 0);
 }
