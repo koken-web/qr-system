@@ -1,14 +1,23 @@
 import { getEvent, getEvents } from "../localdb/eventLocal";
 import { getTicketByQrCredentials } from "../localdb/ticketLocal";
 import {
+  getMemberByQrCredentials,
+  updateMemberStatus,
+} from "../localdb/memberLocal";
+import {
   getTicketReceptionHistory,
   saveReceptionEventWithSyncQueue,
 } from "../localdb/receptionEventLocal";
-import type { ReceptionEvent, SyncQueueItem } from "../localdb/types";
+import type {
+  Member,
+  ReceptionEvent,
+  SyncQueueItem,
+} from "../localdb/types";
 
 export type ReceptionErrorCode =
   | "EVENT_NOT_READY"
   | "TICKET_NOT_FOUND"
+  | "MEMBER_NOT_FOUND"
   | "LOCAL_SAVE_FAILED"
   | "INVALID_REQUEST"
   | "UNKNOWN_ERROR";
@@ -38,6 +47,22 @@ export type ReceptionResult =
         | "already-exited"
         | "save-failed"
         | "unknown";
+    };
+
+export type MemberReceptionResult =
+  | {
+      success: true;
+      member: Member;
+      action: "entry" | "exit";
+      syncStatus: "pending";
+    }
+  | {
+      success: false;
+      reason:
+        | "not-found"
+        | "not-cached"
+        | "invalid-token"
+        | "duplicate";
     };
 
 function createReceptionEventId(): string {
@@ -71,6 +96,52 @@ function createReceptionError(
     message,
     reason,
   };
+}
+
+async function createReceptionEvent(
+  eventId: string,
+  subjectType: "ticket" | "member",
+  qrNumber: string,
+  type: "entry" | "exit",
+  deviceId: string,
+  ticketId?: string,
+  memberId?: string,
+): Promise<ReceptionEvent> {
+  const timestamp = Date.now();
+
+  const receptionEvent: ReceptionEvent = {
+    id: createReceptionEventId(),
+    eventId,
+    subjectType,
+    ...(ticketId ? { ticketId } : {}),
+    ...(memberId ? { memberId } : {}),
+    qrNumber,
+    type,
+    timestamp,
+    deviceId,
+    offline:
+      typeof navigator !== "undefined"
+        ? !navigator.onLine
+        : true,
+    createdAt: timestamp,
+  };
+
+  const syncQueueItem: SyncQueueItem = {
+    id: receptionEvent.id,
+    eventId,
+    type: "reception",
+    data: receptionEvent,
+    createdAt: timestamp,
+    retryCount: 0,
+    status: "pending",
+  };
+
+  await saveReceptionEventWithSyncQueue(
+    receptionEvent,
+    syncQueueItem,
+  );
+
+  return receptionEvent;
 }
 
 export async function processTicketReception(
@@ -129,9 +200,6 @@ export async function processTicketReception(
       );
     }
 
-    // 現在の入退場状態を直接書き換えて判定するのではなく、
-    // これまでのReceptionEventを確認して再入場かどうかだけを求める。
-    // オフライン中は他端末の最新状態を知れないため、状態による受付拒否は行わない。
     const history = await getTicketReceptionHistory(
       eventId,
       ticket.id,
@@ -143,38 +211,31 @@ export async function processTicketReception(
           receptionEvent.type === "entry",
       );
 
-    const timestamp = Date.now();
-    const receptionEvent: ReceptionEvent = {
-      id: createReceptionEventId(),
-      eventId,
-      ticketId: ticket.id,
-      type,
-      timestamp,
-      deviceId,
-      offline:
-        typeof navigator !== "undefined"
-          ? !navigator.onLine
-          : true,
-      createdAt: timestamp,
-    };
-
-    const syncQueueItem: SyncQueueItem = {
-      id: receptionEvent.id,
-      eventId,
-      type: "reception",
-      data: receptionEvent,
-      createdAt: timestamp,
-      retryCount: 0,
-      status: "pending",
-    };
-
     try {
-      // 受付イベントと同期キューを同じIndexedDBトランザクションで保存する。
-      // どちらか一方だけが保存される状態を作らない。
-      await saveReceptionEventWithSyncQueue(
-        receptionEvent,
-        syncQueueItem,
-      );
+      const receptionEvent =
+        await createReceptionEvent(
+          eventId,
+          "ticket",
+          ticket.qrNumber,
+          type,
+          deviceId,
+          ticket.id,
+        );
+
+      return {
+        success: true,
+        receptionEventId:
+          receptionEvent.id,
+        type,
+        ticketId: ticket.id,
+        ticket: {
+          qrNumber: ticket.qrNumber,
+        },
+        timestamp:
+          receptionEvent.timestamp,
+        syncStatus: "pending",
+        isReEntry,
+      };
     } catch {
       return createReceptionError(
         "LOCAL_SAVE_FAILED",
@@ -182,26 +243,122 @@ export async function processTicketReception(
         "save-failed",
       );
     }
-
-    return {
-      success: true,
-      receptionEventId:
-        receptionEvent.id,
-      type,
-      ticketId: ticket.id,
-      ticket: {
-        qrNumber: ticket.qrNumber,
-      },
-      timestamp,
-      syncStatus: "pending",
-      isReEntry,
-    };
   } catch {
     return createReceptionError(
       "UNKNOWN_ERROR",
       "受付処理中に予期しないエラーが発生しました。",
       "unknown",
     );
+  }
+}
+
+export async function processMemberReception(
+  eventId: string,
+  qrNumber: string,
+  authToken: string,
+  type: "entry" | "exit",
+  deviceId: string,
+): Promise<MemberReceptionResult> {
+  if (
+    !eventId ||
+    !qrNumber ||
+    !authToken ||
+    !deviceId ||
+    (type !== "entry" && type !== "exit")
+  ) {
+    return {
+      success: false,
+      reason: "not-found",
+    };
+  }
+
+  try {
+    const event = await getEvent(eventId);
+
+    if (!event) {
+      return {
+        success: false,
+        reason: "not-cached",
+      };
+    }
+
+    const member =
+      await getMemberByQrCredentials(
+        eventId,
+        qrNumber,
+        authToken,
+      );
+
+    if (!member) {
+      return {
+        success: false,
+        reason: "not-found",
+      };
+    }
+
+    const timestamp = Date.now();
+    const nextStatus =
+      type === "entry"
+        ? "inside"
+        : "outside";
+
+    try {
+      await saveReceptionEventWithSyncQueue(
+        {
+          id: createReceptionEventId(),
+          eventId,
+          subjectType: "member",
+          memberId: member.id,
+          qrNumber,
+          type,
+          timestamp,
+          deviceId,
+          offline:
+            typeof navigator !== "undefined"
+              ? !navigator.onLine
+              : true,
+          createdAt: timestamp,
+        },
+        {
+          id: "",
+          eventId,
+          type: "reception",
+          data: null,
+          createdAt: timestamp,
+          retryCount: 0,
+          status: "pending",
+        },
+      );
+    } catch {
+      return {
+        success: false,
+        reason: "duplicate",
+      };
+    }
+
+    const updatedMember: Member = {
+      ...member,
+      status: nextStatus,
+      updatedAt: timestamp,
+    };
+
+    await updateMemberStatus(
+      member.id,
+      nextStatus,
+      timestamp,
+    );
+
+    return {
+      success: true,
+      member: updatedMember,
+      action: type,
+      syncStatus: "pending",
+    };
+  } catch {
+    return {
+      success: false,
+      reason: "not-found",
+    };
   }
 }
 
@@ -255,6 +412,47 @@ export async function processTicketReceptionByEventName(
       "受付処理中に予期しないエラーが発生しました。",
       "unknown",
     );
+  }
+}
+
+export async function processMemberReceptionByEventName(
+  eventName: string,
+  qrNumber: string,
+  authToken: string,
+  type: "entry" | "exit",
+  deviceId: string,
+): Promise<MemberReceptionResult> {
+  if (!eventName) {
+    return {
+      success: false,
+      reason: "not-cached",
+    };
+  }
+
+  try {
+    const eventId = await resolveEventIdByName(
+      eventName,
+    );
+
+    if (!eventId) {
+      return {
+        success: false,
+        reason: "not-cached",
+      };
+    }
+
+    return processMemberReception(
+      eventId,
+      qrNumber,
+      authToken,
+      type,
+      deviceId,
+    );
+  } catch {
+    return {
+      success: false,
+      reason: "not-found",
+    };
   }
 }
 
