@@ -46,6 +46,37 @@ const pageLoadingFallback = (
   </main>
 );
 
+function FirebaseDiagnosticLauncher({
+  onOpen,
+}: {
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={{
+        position: "fixed",
+        left: "50%",
+        bottom: "24px",
+        transform: "translateX(-50%)",
+        zIndex: 10000,
+        minHeight: "48px",
+        padding: "10px 18px",
+        border: "1px solid rgba(255,255,255,0.25)",
+        borderRadius: "12px",
+        background: "#333333",
+        color: "#ffffff",
+        fontSize: "16px",
+        fontWeight: 700,
+        cursor: "pointer",
+      }}
+    >
+      Firebase接続を診断
+    </button>
+  );
+}
+
 function AppRoot() {
   const [
     authState,
@@ -121,6 +152,14 @@ function AppRoot() {
           </DeviceAccessGate>
         </Suspense>
       </DeviceAuthGate>
+
+      {authState === "error" && (
+        <FirebaseDiagnosticLauncher
+          onOpen={() =>
+            setShowFirebaseDiagnostic(true)
+          }
+        />
+      )}
     </AppSplashScreen>
   );
 }
