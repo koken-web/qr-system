@@ -13,7 +13,10 @@ import {
   getEventDataId,
 } from "../firestorePaths";
 import { replaceTicketsForEvent } from "../localdb/ticketLocal";
-import { saveMembers } from "../localdb/memberLocal";
+import {
+  deleteMembersByEventId,
+  saveMembers,
+} from "../localdb/memberLocal";
 import type { Member, Ticket } from "../localdb/types";
 
 function isString(value: unknown): value is string {
@@ -86,10 +89,7 @@ export async function prepareEventOfflineData(
     ];
   });
 
-  const memberCards = new Map<
-    string,
-    { authToken: string; id: string }
-  >();
+  const memberCards = new Map<string, { authToken: string }>();
 
   memberCardSnapshot.docs.forEach((snapshot) => {
     const data = snapshot.data();
@@ -100,7 +100,6 @@ export async function prepareEventOfflineData(
     ) {
       memberCards.set(data.qrNumber, {
         authToken: data.authToken,
-        id: isString(data.id) ? data.id : snapshot.id,
       });
     }
   });
@@ -131,6 +130,7 @@ export async function prepareEventOfflineData(
   });
 
   await replaceTicketsForEvent(eventId, tickets);
+  await deleteMembersByEventId(eventId);
   await saveMembers(members);
 
   return {
