@@ -26,39 +26,6 @@ export type OfflineDeviceAccessSnapshot = {
 
 const SNAPSHOT_ID = "current";
 
-function createSnapshotStore(database: IDBDatabase): void {
-  if (database.objectStoreNames.contains("deviceAccessSnapshots")) {
-    return;
-  }
-
-  database.createObjectStore("deviceAccessSnapshots", {
-    keyPath: "id",
-  });
-}
-
-async function ensureSnapshotStore(): Promise<IDBDatabase> {
-  const database = await getDatabase();
-
-  if (database.objectStoreNames.contains("deviceAccessSnapshots")) {
-    return database;
-  }
-
-  database.close();
-  const request = indexedDB.open("QRManagementDB", 4);
-
-  return new Promise((resolve, reject) => {
-    request.onupgradeneeded = () => {
-      createSnapshotStore(request.result);
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(
-        request.error ??
-          new Error("Failed to upgrade IndexedDB."),
-      );
-  });
-}
-
 export async function saveDeviceAccessSnapshot(
   snapshot: OfflineDeviceAccessSnapshot,
 ): Promise<void> {
@@ -66,15 +33,15 @@ export async function saveDeviceAccessSnapshot(
     return;
   }
 
-  const database = await ensureSnapshotStore();
+  const database = await getDatabase();
 
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(
-      "deviceAccessSnapshots",
+      DB_STORES.deviceAccessSnapshots,
       "readwrite",
     );
     const store = transaction.objectStore(
-      "deviceAccessSnapshots",
+      DB_STORES.deviceAccessSnapshots,
     );
 
     store.put({
@@ -100,18 +67,14 @@ export async function getDeviceAccessSnapshot(): Promise<OfflineDeviceAccessSnap
   try {
     const database = await getDatabase();
 
-    if (!database.objectStoreNames.contains("deviceAccessSnapshots")) {
-      return null;
-    }
-
     return await new Promise<OfflineDeviceAccessSnapshot | null>(
       (resolve, reject) => {
         const transaction = database.transaction(
-          "deviceAccessSnapshots",
+          DB_STORES.deviceAccessSnapshots,
           "readonly",
         );
         const request = transaction
-          .objectStore("deviceAccessSnapshots")
+          .objectStore(DB_STORES.deviceAccessSnapshots)
           .get(SNAPSHOT_ID);
 
         request.onsuccess = () => {
@@ -137,16 +100,12 @@ export async function clearDeviceAccessSnapshot(): Promise<void> {
   try {
     const database = await getDatabase();
 
-    if (!database.objectStoreNames.contains("deviceAccessSnapshots")) {
-      return;
-    }
-
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(
-        "deviceAccessSnapshots",
+        DB_STORES.deviceAccessSnapshots,
         "readwrite",
       );
-      transaction.objectStore("deviceAccessSnapshots").delete(
+      transaction.objectStore(DB_STORES.deviceAccessSnapshots).delete(
         SNAPSHOT_ID,
       );
       transaction.oncomplete = () => resolve();
@@ -160,5 +119,3 @@ export async function clearDeviceAccessSnapshot(): Promise<void> {
     // The snapshot is only an offline fallback. Ignore cleanup failures.
   }
 }
-
-void DB_STORES;
