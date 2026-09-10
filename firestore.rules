@@ -46,7 +46,6 @@ service cloud.firestore {
     function validRole(value) {
       return value == 'member'
         || value == 'reception'
-        // v2.8.0初期版で承認済みの管制端末を壊さないための互換値です。
         || value == 'control';
     }
 
@@ -237,22 +236,39 @@ service cloud.firestore {
 
     function validReceptionEvent(eventId) {
       return request.resource.data.keys().hasOnly([
-          'id', 'eventId', 'ticketId', 'qrNumber', 'type', 'timestamp',
-          'deviceId', 'offline', 'createdAt'
+          'id', 'eventId', 'subjectType', 'ticketId', 'memberId', 'qrNumber',
+          'type', 'timestamp', 'deviceId', 'offline', 'createdAt'
         ])
         && request.resource.data.keys().hasAll([
-          'id', 'eventId', 'ticketId', 'qrNumber', 'type', 'timestamp',
-          'deviceId', 'offline', 'createdAt'
+          'id', 'eventId', 'subjectType', 'qrNumber', 'type',
+          'timestamp', 'deviceId', 'offline', 'createdAt'
         ])
         && request.resource.data.id == eventId
         && request.resource.data.eventId is string
-        && request.resource.data.ticketId is string
+        && request.resource.data.subjectType in ['ticket', 'member']
         && request.resource.data.qrNumber is string
         && request.resource.data.type in ['entry', 'exit']
         && request.resource.data.timestamp is string
         && request.resource.data.deviceId is string
         && request.resource.data.offline is bool
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.createdAt == request.time
+        && (
+          (
+            request.resource.data.subjectType == 'ticket'
+            && 'ticketId' in request.resource.data
+            && request.resource.data.ticketId is string
+            && request.resource.data.ticketId.size() > 0
+            && !('memberId' in request.resource.data)
+          )
+          ||
+          (
+            request.resource.data.subjectType == 'member'
+            && 'memberId' in request.resource.data
+            && request.resource.data.memberId is string
+            && request.resource.data.memberId.size() > 0
+            && !('ticketId' in request.resource.data)
+          )
+        );
     }
 
     function validAnalyticsSummary(summaryId) {
@@ -409,192 +425,71 @@ service cloud.firestore {
 
     match /system/device-access {
       allow read: if signedIn();
-
-      // 新規環境で最初の部員端末を登録するときだけ作成できます。
-      allow create: if signedIn()
-        && request.resource.data.keys().hasOnly([
-          'initialized', 'memberDeviceCount', 'createdAt', 'updatedAt'
-        ])
-        && request.resource.data.initialized == true
-        && request.resource.data.memberDeviceCount == 1
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time;
-
-      allow update: if memberDevice()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'memberDeviceCount', 'updatedAt'
-        ])
-        && request.resource.data.initialized == true
-        && request.resource.data.memberDeviceCount is int
-        && request.resource.data.memberDeviceCount >= 1
-        && request.resource.data.updatedAt == request.time;
-
-      allow delete: if false;
-
-      match /devices/{deviceId} {
-        allow read: if memberDevice() || (signedIn() && deviceId == currentUid());
-
-        allow create: if validDevice(request.resource.data)
-          && (
-            memberDevice()
-            || (
-              signedIn()
-              && deviceId == currentUid()
-              && request.resource.data.role == 'member'
-              && request.resource.data.active == true
-              && !exists(configPath())
-              && getAfter(configPath()).data.initialized == true
-              && getAfter(configPath()).data.memberDeviceCount == 1
-            )
-          );
-
-        allow update: if validDevice(request.resource.data)
-          && (
-            (
-              activeDevice()
-              && deviceId == currentUid()
-              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                'deviceType'
-              ])
-              && validDeviceType(request.resource.data.deviceType)
-            )
-            ||
-            (
-              memberDevice()
-              &&
-              deviceId == currentUid()
-              &&
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                'deviceName'
-              ])
-              && shortText(request.resource.data.deviceName)
-            )
-            || (
-              memberDevice()
-              &&
-              deviceId != currentUid()
-              && request.resource.data.active == true
-            )
-          );
-
-        allow delete: if memberDevice()
-          && deviceId != currentUid()
-          && (
-            resource.data.role != 'member'
-            || resource.data.active != true
-            || (
-              getAfter(configPath()).data.memberDeviceCount
-                == get(configPath()).data.memberDeviceCount - 1
-              && getAfter(configPath()).data.memberDeviceCount >= 1
-            )
-          );
-      }
-
-      match /requests/{requestUid} {
-        allow read: if memberDevice() || (signedIn() && requestUid == currentUid());
-        allow create: if validPendingRequest(request.resource.data, requestUid);
-        allow update: if validPendingRequest(request.resource.data, requestUid)
-          || (memberDevice() && requestUid != currentUid() && validDecision(request.resource.data));
-        allow delete: if false;
-      }
-
-      match /audit/{auditId} {
-        allow read: if memberDevice();
-        allow create: if validAudit(request.resource.data)
-          && (
-            memberDevice()
-            || (
-              signedIn()
-              && request.resource.data.action == 'request-created'
-              && request.resource.data.actorUid == currentUid()
-              && request.resource.data.targetUid == currentUid()
-            )
-            || (
-              signedIn()
-              && request.resource.data.action == 'bootstrap-member'
-              && request.resource.data.actorUid == currentUid()
-              && request.resource.data.targetUid == currentUid()
-              && !exists(configPath())
-              && getAfter(configPath()).data.initialized == true
-            )
-          );
-        allow update, delete: if false;
-      }
+      allow write: if false;
     }
 
-    match /system/{systemDocument} {
-      allow read: if memberDevice()
-        || (activeDevice() && systemDocument == 'current-event');
-      allow create, update, delete: if memberDevice()
-        && systemDocument != 'device-access';
+    match /system/device-access/devices/{uid} {
+      allow read: if signedIn();
+      allow create: if currentUid() == uid
+        && validDevice(request.resource.data);
+      allow update: if (
+          (currentUid() == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'deviceName'
+          ]) && shortText(request.resource.data.deviceName))
+          ||
+          (memberDevice() && validDevice(request.resource.data))
+        );
+      allow delete: if memberDevice() || currentUid() == uid;
+    }
+
+    match /system/device-access/pending-requests/{uid} {
+      allow read: if currentUid() == uid || memberDevice();
+      allow create: if validPendingRequest(request.resource.data, uid);
+      allow update: if memberDevice() && validDecision(request.resource.data);
+      allow delete: if currentUid() == uid || memberDevice();
+    }
+
+    match /system/device-access/audit/{auditId} {
+      allow read: if memberDevice();
+      allow create: if memberDevice() && validAudit(request.resource.data);
+      allow update, delete: if false;
     }
 
     match /events/{eventId} {
-      allow read: if activeDevice();
-      allow create, update, delete: if memberDevice();
+      allow read: if signedIn();
+      allow create, update: if memberDevice();
+      allow delete: if memberDevice();
     }
 
-    match /member-cards/{memberId} {
+    match /event-data/{eventId}/{document=**} {
+      allow read: if signedIn();
+      allow write: if memberDevice();
+    }
+
+    match /event-data/{eventId}/receptionEvents/{receptionEventId} {
       allow read: if memberDevice() || receptionDevice();
-      allow create, update, delete: if memberDevice();
+      allow create: if memberDevice()
+        || (receptionDevice() && validReceptionEvent(receptionEventId));
+      allow update, delete: if memberDevice();
     }
 
-    match /event-data/{eventId} {
-      allow read, create, update, delete: if memberDevice();
+    match /event-data/{eventId}/reception-devices/{deviceId} {
+      allow read: if memberDevice() || receptionDevice();
+      allow create, update: if receptionDevice()
+        && ownsReceptionPresence(eventId, deviceId)
+        && validReceptionPresence(deviceId);
+      allow delete: if receptionDevice()
+        && ownsReceptionPresence(eventId, deviceId);
+    }
 
-      match /tickets/{ticketId} {
-        allow read: if memberDevice() || receptionDevice();
-        allow create, delete: if memberDevice();
-        allow update: if memberDevice()
-          || (receptionDevice() && validReceptionStatusUpdate());
-      }
-
-      match /members/{memberId} {
-        allow read: if memberDevice() || receptionDevice();
-        allow create: if memberDevice()
-          || (receptionDevice() && validReceptionMemberCreate(memberId));
-        allow update: if memberDevice()
-          || (receptionDevice() && validReceptionMemberUpdate(memberId));
-        allow delete: if memberDevice();
-      }
-
-      match /activity/{activityId} {
-        allow read: if memberDevice() || receptionDevice();
-        allow create: if memberDevice()
-          || (receptionDevice() && validScannerActivity(activityId));
-        allow update, delete: if memberDevice();
-      }
-
-      match /receptionEvents/{eventId} {
-        allow read: if memberDevice() || receptionDevice();
-        allow create: if memberDevice()
-          || (receptionDevice() && validReceptionEvent(eventId));
-        allow update, delete: if memberDevice();
-      }
-
-      match /analytics/{summaryId} {
-        allow read: if activeDevice();
-        allow create, update: if memberDevice()
-          || (receptionDevice() && validAnalyticsSummary(summaryId));
-        allow delete: if memberDevice();
-      }
-
-      match /reception-devices/{deviceId} {
-        allow read: if activeDevice();
-        allow create, update: if (memberDevice() || receptionDevice())
-          && validReceptionPresence(deviceId);
-        allow delete: if memberDevice() || receptionDevice();
-
-        match /commands/{commandId} {
-          allow read: if memberDevice()
-            || ownsReceptionPresence(eventId, deviceId);
-          allow create: if memberDevice()
-            && validRemoteCommandCreate(request.resource.data);
-          allow update: if ownsReceptionPresence(eventId, deviceId)
-            && validRemoteCommandUpdate(request.resource.data);
-          allow delete: if false;
-        }
-      }
+    match /event-data/{eventId}/reception-devices/{deviceId}/commands/{commandId} {
+      allow read: if memberDevice() || receptionDevice();
+      allow create: if memberDevice()
+        && validRemoteCommandCreate(request.resource.data);
+      allow update: if receptionDevice()
+        && ownsReceptionPresence(eventId, deviceId)
+        && validRemoteCommandUpdate(request.resource.data);
+      allow delete: if memberDevice();
     }
 
     match /{document=**} {
