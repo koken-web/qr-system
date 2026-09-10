@@ -122,6 +122,7 @@ export async function prepareEventOfflineData(
         id: qrNumber,
         eventId,
         name: data.name,
+        qrNumber,
         qrToken: card.authToken,
         status: data.status === "入室中" ? "inside" : "outside",
         updatedAt: Date.now(),
