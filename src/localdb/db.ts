@@ -1,5 +1,5 @@
 const DB_NAME = "QRManagementDB";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const DB_STORES = {
   events: "events",
@@ -9,6 +9,7 @@ export const DB_STORES = {
   receptionEvents: "receptionEvents",
   activities: "activities",
   syncQueue: "syncQueue",
+  deviceAccessSnapshots: "deviceAccessSnapshots",
 } as const;
 
 type StoreName =
@@ -144,6 +145,12 @@ function upgradeDatabase(
         ["eventId", "qrNumber"],
       );
     }
+  }
+
+  if (oldVersion < 3) {
+    createStore(database, DB_STORES.deviceAccessSnapshots, {
+      keyPath: "id",
+    });
   }
 }
 
