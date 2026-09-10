@@ -21,6 +21,11 @@ import {
 } from "./deviceAccessFirestore";
 
 import {
+  getDeviceAccessSnapshot,
+  saveDeviceAccessSnapshot,
+} from "./localdb/deviceAccessSnapshotLocal";
+
+import {
   DeviceAccessContext,
   type DeviceAccessContextValue,
 } from "./deviceAccessContext";
@@ -130,8 +135,17 @@ function DeviceAccessGate({
   children,
   onScreenStateChange,
 }: DeviceAccessGateProps) {
+  const [offlineSnapshot, setOfflineSnapshot] =
+    useState<Awaited<ReturnType<typeof getDeviceAccessSnapshot>>>(
+      null
+    );
+  const [offlineSnapshotLoaded, setOfflineSnapshotLoaded] =
+    useState(false);
+
   const uid =
-    auth.currentUser?.uid ?? "";
+    auth.currentUser?.uid ??
+    offlineSnapshot?.uid ??
+    "";
   const [configLoaded, setConfigLoaded] =
     useState(false);
   const [configInitialized, setConfigInitialized] =
@@ -170,6 +184,35 @@ function DeviceAccessGate({
     useState(false);
   const [upgradeError, setUpgradeError] =
     useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    void getDeviceAccessSnapshot().then((snapshot) => {
+      if (!active) return;
+
+      setOfflineSnapshot(snapshot);
+      setOfflineSnapshotLoaded(true);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!offlineSnapshotLoaded || uid === "") {
+      return undefined;
+    }
+
+    if (auth.currentUser === null && offlineSnapshot?.device.active === true) {
+      setDevice(offlineSnapshot.device as AuthorizedDevice);
+      setDeviceLoaded(true);
+      setDeviceFromCache(true);
+    }
+
+    return undefined;
+  }, [offlineSnapshotLoaded, offlineSnapshot, uid]);
 
   useEffect(() => {
     if (uid === "") {
@@ -237,6 +280,27 @@ function DeviceAccessGate({
     device?.active === true
       ? device
       : null;
+
+  useEffect(() => {
+    if (
+      auth.currentUser === null ||
+      activeDevice === null ||
+      activeDevice.uid !== auth.currentUser.uid
+    ) {
+      return;
+    }
+
+    void saveDeviceAccessSnapshot({
+      uid: auth.currentUser.uid,
+      device: activeDevice,
+      savedAt: Date.now(),
+    }).catch((error) => {
+      console.warn(
+        "オフライン端末権限情報の保存を次回へ延期します。",
+        error
+      );
+    });
+  }, [activeDevice]);
 
   const configKnown =
     configLoaded &&
