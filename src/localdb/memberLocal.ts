@@ -84,7 +84,7 @@ export async function getMemberByQrCredentials(
   return members.find(
     (member) =>
       member.qrToken === authToken &&
-      member.id === qrNumber,
+      member.qrNumber === qrNumber,
   );
 }
 
