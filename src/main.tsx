@@ -7,6 +7,9 @@ import {
 import {
   startOfflineReceptionSync,
 } from "./offlineReceptionSync";
+import {
+  startOfflineDataPreparation,
+} from "./services/offlineDataPreparationStartup";
 
 import "./index.css";
 import "./moved-data-controls.css";
@@ -65,6 +68,7 @@ const installAutomaticAppUpdate = () => {
 installAutomaticAppUpdate();
 installIntentionalReceptionStopGuard();
 startOfflineReceptionSync();
+startOfflineDataPreparation();
 
 /*
   iPad用印刷画面が表示されるたびに、
