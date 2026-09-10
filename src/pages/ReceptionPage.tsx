@@ -19,11 +19,8 @@ const CameraQrScanner = lazy(() =>
 
 import {
   processTicketReceptionByEventName,
+  processMemberReceptionByEventName,
 } from "../services/receptionService";
-
-import {
-  processMemberReceptionInFirestore,
-} from "../memberFirestore";
 
 import {
   createReceptionDeviceId,
@@ -1155,10 +1152,14 @@ function ReceptionPage({
       ) => {
         try {
           const result =
-            await processMemberReceptionInFirestore(
+            await processMemberReceptionByEventName(
               eventName,
               parsedQr.qrNumber,
-              parsedQr.authToken
+              parsedQr.authToken,
+              isEntry
+                ? "entry"
+                : "exit",
+              receptionDeviceId
             );
 
           if (
@@ -1199,20 +1200,14 @@ function ReceptionPage({
           showMemberSuccess(
             result.member.name,
             result.member.qrNumber,
-            result.syncStatus ===
-              "pending"
-              ? result.action ===
-                  "entry"
-                ? "入室を端末に保存しました（自動同期）"
-                : "退出を端末に保存しました（自動同期）"
-              : result.action ===
-                  "entry"
-                ? "入室完了"
-                : "退出完了"
+            result.action ===
+              "entry"
+              ? "入室を端末に保存しました（通信復旧後に自動同期）"
+              : "退出を端末に保存しました（通信復旧後に自動同期）"
           );
         } catch (error) {
           console.error(
-            "Firestoreでの部員受付処理に失敗しました。",
+            "IndexedDBでの部員受付処理に失敗しました。",
             error
           );
 
@@ -1223,6 +1218,8 @@ function ReceptionPage({
         }
       },
       [
+        isEntry,
+        receptionDeviceId,
         showError,
         showMemberSuccess,
       ]
