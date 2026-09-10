@@ -235,6 +235,26 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time;
     }
 
+    function validReceptionEvent(eventId) {
+      return request.resource.data.keys().hasOnly([
+          'id', 'eventId', 'ticketId', 'qrNumber', 'type', 'timestamp',
+          'deviceId', 'offline', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'id', 'eventId', 'ticketId', 'qrNumber', 'type', 'timestamp',
+          'deviceId', 'offline', 'createdAt'
+        ])
+        && request.resource.data.id == eventId
+        && request.resource.data.eventId is string
+        && request.resource.data.ticketId is string
+        && request.resource.data.qrNumber is string
+        && request.resource.data.type in ['entry', 'exit']
+        && request.resource.data.timestamp is string
+        && request.resource.data.deviceId is string
+        && request.resource.data.offline is bool
+        && request.resource.data.createdAt == request.time;
+    }
+
     function validAnalyticsSummary(summaryId) {
       return summaryId == 'summary'
         && request.resource.data.schemaVersion == 2
@@ -542,6 +562,13 @@ service cloud.firestore {
         allow read: if memberDevice() || receptionDevice();
         allow create: if memberDevice()
           || (receptionDevice() && validScannerActivity(activityId));
+        allow update, delete: if memberDevice();
+      }
+
+      match /receptionEvents/{eventId} {
+        allow read: if memberDevice() || receptionDevice();
+        allow create: if memberDevice()
+          || (receptionDevice() && validReceptionEvent(eventId));
         allow update, delete: if memberDevice();
       }
 
