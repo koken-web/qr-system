@@ -78,6 +78,7 @@ export type Member = {
   id: string;
   eventId: string;
   name: string;
+  qrNumber: string;
   qrToken: string;
   status: "inside" | "outside";
   updatedAt: number;
