@@ -13,6 +13,7 @@ import {
 import {
   ACTIVITY_COLLECTION,
   EVENT_DATA_COLLECTION,
+  RECEPTION_EVENTS_COLLECTION,
   TICKETS_COLLECTION,
   getEventDataId,
 } from "./firestorePaths";
@@ -204,6 +205,14 @@ async function syncReceptionEvent(
     localTicket.qrNumber,
   );
 
+  const receptionEventDocument = doc(
+    db,
+    EVENT_DATA_COLLECTION,
+    eventDataId,
+    RECEPTION_EVENTS_COLLECTION,
+    receptionEvent.id,
+  );
+
   const activityDocument = doc(
     db,
     EVENT_DATA_COLLECTION,
@@ -222,17 +231,19 @@ async function syncReceptionEvent(
     async (transaction) => {
       const [
         eventSnapshot,
+        receptionEventSnapshot,
         activitySnapshot,
         ticketSnapshot,
         analyticsSnapshot,
       ] = await Promise.all([
         transaction.get(eventDocument),
+        transaction.get(receptionEventDocument),
         transaction.get(activityDocument),
         transaction.get(ticketDocument),
         transaction.get(analyticsDocument),
       ]);
 
-      if (activitySnapshot.exists()) {
+      if (receptionEventSnapshot.exists()) {
         return;
       }
 
@@ -246,68 +257,88 @@ async function syncReceptionEvent(
       const endedState = getEndedEventState(
         eventSnapshot,
       );
-
-      if (endedState.ended) {
-        if (
-          !wasCapturedBeforeEventEnd(
-            capturedAt,
-            endedState.endedAt,
-          )
-        ) {
-          return;
-        }
-
-        if (ticketData.status !== "無効") {
-          transaction.update(
-            ticketDocument,
-            {
-              status: "使用済み",
-              lastReceptionAt: endedState.endedAt,
-              lastReceptionOperationId: receptionEvent.id,
-              updatedAt: serverTimestamp(),
-            },
-          );
-        }
-      } else if (
-        shouldApplyStatus(
-          ticketData.lastReceptionAt,
+      const capturedBeforeEnd =
+        !endedState.ended ||
+        wasCapturedBeforeEventEnd(
           capturedAt,
-        )
-      ) {
-        transaction.update(
-          ticketDocument,
-          {
-            status:
-              receptionEvent.type === "entry"
-                ? "入場中"
-                : "使用済み",
-            lastReceptionAt: capturedAt,
-            lastReceptionOperationId: receptionEvent.id,
-            updatedAt: serverTimestamp(),
-          },
+          endedState.endedAt,
         );
-      }
 
       transaction.set(
-        activityDocument,
+        receptionEventDocument,
         {
           id: receptionEvent.id,
-          type:
-            receptionEvent.type === "entry"
-              ? "ticket-entry"
-              : "ticket-exit",
+          eventId: receptionEvent.eventId,
+          ticketId: receptionEvent.ticketId,
           qrNumber: localTicket.qrNumber,
+          type: receptionEvent.type,
           timestamp: capturedAt,
-          source: "scanner",
+          deviceId: receptionEvent.deviceId,
           offline: receptionEvent.offline,
           createdAt: serverTimestamp(),
         },
       );
 
-      markEventAnalyticsStaleInTransaction(
-        transaction,
-        analyticsSnapshot,
-      );
+      if (capturedBeforeEnd) {
+        if (
+          !endedState.ended &&
+          shouldApplyStatus(
+            ticketData.lastReceptionAt,
+            capturedAt,
+          )
+        ) {
+          transaction.update(
+            ticketDocument,
+            {
+              status:
+                receptionEvent.type === "entry"
+                  ? "入場中"
+                  : "使用済み",
+              lastReceptionAt: capturedAt,
+              lastReceptionOperationId: receptionEvent.id,
+              updatedAt: serverTimestamp(),
+            },
+          );
+        } else if (
+          endedState.ended &&
+          ticketData.status !== "無効"
+        ) {
+          transaction.update(
+            ticketDocument,
+            {
+              status: "使用済み",
+              lastReceptionAt:
+                endedState.endedAt ?? capturedAt,
+              lastReceptionOperationId:
+                receptionEvent.id,
+              updatedAt: serverTimestamp(),
+            },
+          );
+        }
+
+        if (!activitySnapshot.exists()) {
+          transaction.set(
+            activityDocument,
+            {
+              id: receptionEvent.id,
+              type:
+                receptionEvent.type === "entry"
+                  ? "ticket-entry"
+                  : "ticket-exit",
+              qrNumber: localTicket.qrNumber,
+              timestamp: capturedAt,
+              source: "scanner",
+              offline: receptionEvent.offline,
+              createdAt: serverTimestamp(),
+            },
+          );
+        }
+
+        markEventAnalyticsStaleInTransaction(
+          transaction,
+          analyticsSnapshot,
+        );
+      }
     },
   );
 }
