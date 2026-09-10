@@ -63,7 +63,7 @@ export type Ticket = {
 export type ReceptionEvent = {
   id: string;
   eventId: string;
-  subjectType: ReceptionSubjectType;
+  subjectType?: ReceptionSubjectType;
   ticketId?: string;
   memberId?: string;
   qrNumber: string;
