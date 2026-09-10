@@ -21,10 +21,6 @@ const App = lazy(() =>
   import("./App")
 );
 
-const FirebaseTestPage = lazy(() =>
-  import("./pages/FirebaseTestPage")
-);
-
 type StartupState =
   | "checking"
   | "ready"
@@ -61,33 +57,12 @@ function AppRoot() {
     "checking"
   );
 
-  const [
-    showFirebaseDiagnostic,
-    setShowFirebaseDiagnostic,
-  ] = useState(true);
-
   const canFinishSplash =
     authState === "error" ||
     (
       authState === "ready" &&
       accessState !== "checking"
     );
-
-  if (showFirebaseDiagnostic) {
-    return (
-      <Suspense
-        fallback={
-          pageLoadingFallback
-        }
-      >
-        <FirebaseTestPage
-          setPage={() =>
-            setShowFirebaseDiagnostic(false)
-          }
-        />
-      </Suspense>
-    );
-  }
 
   return (
     <AppSplashScreen
