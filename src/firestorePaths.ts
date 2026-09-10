@@ -19,6 +19,9 @@ export const EVENT_MEMBERS_COLLECTION =
 export const ACTIVITY_COLLECTION =
   "activity";
 
+export const RECEPTION_EVENTS_COLLECTION =
+  "receptionEvents";
+
 export const ANALYTICS_COLLECTION =
   "analytics";
 
