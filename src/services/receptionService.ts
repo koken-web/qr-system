@@ -28,9 +28,7 @@ export type ReceptionResult =
       receptionEventId: string;
       type: "entry" | "exit";
       ticketId: string;
-      ticket: {
-        qrNumber: string;
-      };
+      ticket: { qrNumber: string };
       timestamp: number;
       syncStatus: "pending";
       isReEntry: boolean;
@@ -73,9 +71,7 @@ function createReceptionEventId(): string {
     return crypto.randomUUID();
   }
 
-  return `${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 10)}`;
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function createReceptionError(
@@ -90,12 +86,7 @@ function createReceptionError(
     | "save-failed"
     | "unknown",
 ): ReceptionResult {
-  return {
-    success: false,
-    code,
-    message,
-    reason,
-  };
+  return { success: false, code, message, reason };
 }
 
 async function saveReceptionEvent(
@@ -124,12 +115,7 @@ export async function processTicketReception(
   type: "entry" | "exit",
   deviceId: string,
 ): Promise<ReceptionResult> {
-  if (
-    !eventId ||
-    !qrNumber ||
-    !authToken ||
-    !deviceId
-  ) {
+  if (!eventId || !qrNumber || !authToken || !deviceId) {
     return createReceptionError(
       "INVALID_REQUEST",
       "受付情報が不足しています。",
@@ -137,10 +123,7 @@ export async function processTicketReception(
     );
   }
 
-  if (
-    type !== "entry" &&
-    type !== "exit"
-  ) {
+  if (type !== "entry" && type !== "exit") {
     return createReceptionError(
       "INVALID_REQUEST",
       "受付種別が不正です。",
@@ -150,7 +133,6 @@ export async function processTicketReception(
 
   try {
     const event = await getEvent(eventId);
-
     if (!event) {
       return createReceptionError(
         "EVENT_NOT_READY",
@@ -164,7 +146,6 @@ export async function processTicketReception(
       qrNumber,
       authToken,
     );
-
     if (!ticket) {
       return createReceptionError(
         "TICKET_NOT_FOUND",
@@ -179,25 +160,19 @@ export async function processTicketReception(
     );
     const isReEntry =
       type === "entry" &&
-      history.some(
-        (receptionEvent) =>
-          receptionEvent.type === "entry",
-      );
+      history.some((receptionEvent) => receptionEvent.type === "entry");
 
     const timestamp = Date.now();
     const receptionEvent: ReceptionEvent = {
       id: createReceptionEventId(),
       eventId,
-      subjectType: "ticket",
       ticketId: ticket.id,
       qrNumber: ticket.qrNumber,
       type,
       timestamp,
       deviceId,
       offline:
-        typeof navigator !== "undefined"
-          ? !navigator.onLine
-          : true,
+        typeof navigator !== "undefined" ? !navigator.onLine : true,
       createdAt: timestamp,
     };
 
@@ -216,9 +191,7 @@ export async function processTicketReception(
       receptionEventId: receptionEvent.id,
       type,
       ticketId: ticket.id,
-      ticket: {
-        qrNumber: ticket.qrNumber,
-      },
+      ticket: { qrNumber: ticket.qrNumber },
       timestamp,
       syncStatus: "pending",
       isReEntry,
@@ -246,20 +219,13 @@ export async function processMemberReception(
     !deviceId ||
     (type !== "entry" && type !== "exit")
   ) {
-    return {
-      success: false,
-      reason: "not-found",
-    };
+    return { success: false, reason: "not-found" };
   }
 
   try {
     const event = await getEvent(eventId);
-
     if (!event) {
-      return {
-        success: false,
-        reason: "not-cached",
-      };
+      return { success: false, reason: "not-cached" };
     }
 
     const member = await getMemberByQrCredentials(
@@ -267,17 +233,12 @@ export async function processMemberReception(
       qrNumber,
       authToken,
     );
-
     if (!member) {
-      return {
-        success: false,
-        reason: "not-found",
-      };
+      return { success: false, reason: "not-found" };
     }
 
     const timestamp = Date.now();
-    const nextStatus =
-      type === "entry" ? "inside" : "outside";
+    const nextStatus = type === "entry" ? "inside" : "outside";
     const receptionEvent: ReceptionEvent = {
       id: createReceptionEventId(),
       eventId,
@@ -288,43 +249,29 @@ export async function processMemberReception(
       timestamp,
       deviceId,
       offline:
-        typeof navigator !== "undefined"
-          ? !navigator.onLine
-          : true,
+        typeof navigator !== "undefined" ? !navigator.onLine : true,
       createdAt: timestamp,
     };
 
     try {
       await saveReceptionEvent(receptionEvent);
-      await updateMemberStatus(
-        member.id,
-        nextStatus,
-        timestamp,
-      );
+      await updateMemberStatus(member.id, nextStatus, timestamp);
     } catch {
-      return {
-        success: false,
-        reason: "duplicate",
-      };
+      return { success: false, reason: "duplicate" };
     }
-
-    const updatedMember: Member = {
-      ...member,
-      status: nextStatus,
-      updatedAt: timestamp,
-    };
 
     return {
       success: true,
-      member: updatedMember,
+      member: {
+        ...member,
+        status: nextStatus,
+        updatedAt: timestamp,
+      },
       action: type,
       syncStatus: "pending",
     };
   } catch {
-    return {
-      success: false,
-      reason: "not-found",
-    };
+    return { success: false, reason: "not-found" };
   }
 }
 
@@ -332,9 +279,7 @@ async function resolveEventIdByName(
   eventName: string,
 ): Promise<string | undefined> {
   const events = await getEvents();
-  return events.find(
-    (event) => event.name === eventName,
-  )?.id;
+  return events.find((event) => event.name === eventName)?.id;
 }
 
 export async function processTicketReceptionByEventName(
@@ -354,7 +299,6 @@ export async function processTicketReceptionByEventName(
 
   try {
     const eventId = await resolveEventIdByName(eventName);
-
     if (!eventId) {
       return createReceptionError(
         "EVENT_NOT_READY",
@@ -386,22 +330,11 @@ export async function processMemberReceptionByEventName(
   type: "entry" | "exit",
   deviceId: string,
 ): Promise<MemberReceptionResult> {
-  if (!eventName) {
-    return {
-      success: false,
-      reason: "not-cached",
-    };
-  }
+  if (!eventName) return { success: false, reason: "not-cached" };
 
   try {
     const eventId = await resolveEventIdByName(eventName);
-
-    if (!eventId) {
-      return {
-        success: false,
-        reason: "not-cached",
-      };
-    }
+    if (!eventId) return { success: false, reason: "not-cached" };
 
     return processMemberReception(
       eventId,
@@ -411,10 +344,7 @@ export async function processMemberReceptionByEventName(
       deviceId,
     );
   } catch {
-    return {
-      success: false,
-      reason: "not-found",
-    };
+    return { success: false, reason: "not-found" };
   }
 }
 
