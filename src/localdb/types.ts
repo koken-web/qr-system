@@ -7,6 +7,10 @@ export type ReceptionType =
   | "entry"
   | "exit";
 
+export type ReceptionSubjectType =
+  | "ticket"
+  | "member";
+
 export type DeviceType =
   | "entry"
   | "exit"
@@ -59,7 +63,10 @@ export type Ticket = {
 export type ReceptionEvent = {
   id: string;
   eventId: string;
-  ticketId: string;
+  subjectType: ReceptionSubjectType;
+  ticketId?: string;
+  memberId?: string;
+  qrNumber: string;
   type: ReceptionType;
   timestamp: number;
   deviceId: string;
