@@ -442,7 +442,7 @@ service cloud.firestore {
       allow delete: if memberDevice() || currentUid() == uid;
     }
 
-    match /system/device-access/pending-requests/{uid} {
+    match /system/device-access/requests/{uid} {
       allow read: if currentUid() == uid || memberDevice();
       allow create: if validPendingRequest(request.resource.data, uid);
       allow update: if memberDevice() && validDecision(request.resource.data);
