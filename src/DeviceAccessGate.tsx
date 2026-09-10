@@ -257,13 +257,15 @@ function DeviceAccessGate({
       !requestFromCache
     );
   const accessReady =
-    configKnown &&
+    activeDevice !== null ||
     (
-      !configInitialized ||
-      activeDevice !== null ||
+      configKnown &&
       (
-        deviceKnown &&
-        requestKnown
+        !configInitialized ||
+        (
+          deviceKnown &&
+          requestKnown
+        )
       )
     );
   const accessUnavailableOffline =
@@ -416,8 +418,12 @@ function DeviceAccessGate({
       ? "端末の自動認証情報を取得できませんでした。"
       : loadError;
 
+  const accessCheckBlocked =
+    effectiveLoadError !== "" &&
+    activeDevice === null;
+
   if (
-    effectiveLoadError !== "" ||
+    accessCheckBlocked ||
     (
       !accessReady &&
       navigator.onLine === false
@@ -457,7 +463,10 @@ function DeviceAccessGate({
     return <LoadingScreen />;
   }
 
-  if (!configInitialized) {
+  if (
+    !configInitialized &&
+    activeDevice === null
+  ) {
     return (
       <main className="device-access-page">
         <section className="device-access-card">
