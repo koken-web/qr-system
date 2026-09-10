@@ -201,20 +201,6 @@ function DeviceAccessGate({
   }, []);
 
   useEffect(() => {
-    if (!offlineSnapshotLoaded || uid === "") {
-      return undefined;
-    }
-
-    if (auth.currentUser === null && offlineSnapshot?.device.active === true) {
-      setDevice(offlineSnapshot.device as AuthorizedDevice);
-      setDeviceLoaded(true);
-      setDeviceFromCache(true);
-    }
-
-    return undefined;
-  }, [offlineSnapshotLoaded, offlineSnapshot, uid]);
-
-  useEffect(() => {
     if (uid === "") {
       return undefined;
     }
@@ -276,9 +262,19 @@ function DeviceAccessGate({
     };
   }, [uid]);
 
+  const offlineDevice =
+    auth.currentUser === null &&
+    offlineSnapshotLoaded &&
+    offlineSnapshot?.device.active === true
+      ? offlineSnapshot.device as AuthorizedDevice
+      : null;
+
+  const effectiveDevice =
+    device ?? offlineDevice;
+
   const activeDevice =
-    device?.active === true
-      ? device
+    effectiveDevice?.active === true
+      ? effectiveDevice
       : null;
 
   useEffect(() => {
@@ -309,10 +305,13 @@ function DeviceAccessGate({
       !configFromCache
     );
   const deviceKnown =
-    deviceLoaded &&
+    offlineDevice !== null ||
     (
-      device !== null ||
-      !deviceFromCache
+      deviceLoaded &&
+      (
+        device !== null ||
+        !deviceFromCache
+      )
     );
   const requestKnown =
     requestLoaded &&
