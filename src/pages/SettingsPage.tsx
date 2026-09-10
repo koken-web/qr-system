@@ -940,6 +940,18 @@ function SettingsPage({
           <p className="settings-help">
             サイトを開くと自動で接続します。初めて開くときだけ、インターネット接続が必要です。
           </p>
+
+          <button
+            type="button"
+            className="settings-export-button"
+            onClick={() =>
+              setPage(
+                "firebase-test"
+              )
+            }
+          >
+            Firebase接続診断
+          </button>
         </section>
 
         <section className="settings-danger-section">
