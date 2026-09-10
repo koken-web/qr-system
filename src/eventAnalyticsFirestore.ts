@@ -555,10 +555,11 @@ export async function markEventAnalyticsStale(eventName: string) {
 export function applyActivityToAnalyticsTransaction(
   transaction: Transaction,
   analyticsSnapshot: AnalyticsSnapshot,
-  _activity: LegacyAnalyticsActivity
+  activity: LegacyAnalyticsActivity
 ) {
   // ReceptionEvent が分析の正本になったため、旧activityの増分集計は行わず
-  // 再構築フラグだけを立てる。これにより既存のFirestore処理との互換性を保つ。
+  // 再構築フラグだけを立てる。引数の参照は旧API互換のために残す。
+  void activity;
   markEventAnalyticsStaleInTransaction(transaction, analyticsSnapshot);
 }
 
