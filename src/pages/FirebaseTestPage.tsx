@@ -4,14 +4,16 @@ import {
 
 import {
   doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
+  getDocFromServer,
 } from "firebase/firestore";
 
 import {
   db,
 } from "../firebase";
+
+import {
+  auth,
+} from "../firebaseAuth";
 
 type FirebaseTestPageProps = {
   setPage: (
@@ -21,9 +23,36 @@ type FirebaseTestPageProps = {
 
 type TestState =
   | "waiting"
-  | "saving"
+  | "testing"
   | "success"
   | "error";
+
+function getErrorCode(
+  error: unknown
+) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return error.code;
+  }
+
+  return "unknown";
+}
+
+function getErrorMessage(
+  error: unknown
+) {
+  if (
+    error instanceof Error
+  ) {
+    return error.message;
+  }
+
+  return "原因不明のエラー";
+}
 
 function FirebaseTestPage({
   setPage,
@@ -42,78 +71,88 @@ function FirebaseTestPage({
     "まだ接続テストをしていません"
   );
 
+  const [
+    detail,
+    setDetail,
+  ] = useState("");
+
   const runConnectionTest =
     async () => {
       setTestState(
-        "saving"
+        "testing"
       );
 
       setMessage(
-        "Firebaseへ接続しています…"
+        "Firebaseの接続状態を確認しています…"
       );
+      setDetail("");
 
       try {
+        const currentUser =
+          auth.currentUser;
+
+        if (
+          currentUser === null
+        ) {
+          throw new Error(
+            "Firebase Authenticationにログインできていません。"
+          );
+        }
+
         const testDocument =
           doc(
             db,
             "system",
-            "connection-test"
+            "device-access"
           );
 
-        await setDoc(
-          testDocument,
-          {
-            message:
-              "Firebase接続成功",
-
-            appName:
-              "交通研究部QRコード管理システム",
-
-            updatedAt:
-              serverTimestamp(),
-          },
-          {
-            merge: true,
-          }
-        );
-
-        const savedDocument =
-          await getDoc(
+        const snapshot =
+          await getDocFromServer(
             testDocument
           );
-
-        if (
-          !savedDocument.exists()
-        ) {
-          throw new Error(
-            "保存したテストデータを読み込めませんでした。"
-          );
-        }
 
         setTestState(
           "success"
         );
 
         setMessage(
-          "Firebaseへの保存と読み込みに成功しました"
-        );
-      } catch (error) {
-        console.error(
-          "Firebase接続テストに失敗しました。",
-          error
+          "Firebaseへの接続に成功しました"
         );
 
+        setDetail(
+          [
+            `Authentication: OK`,
+            `UID: ${currentUser.uid}`,
+            `Firestore: OK`,
+            `device-access: ${snapshot.exists() ? "存在します" : "まだ存在しません"}`,
+          ].join("\n")
+        );
+      } catch (error) {
+        const code =
+          getErrorCode(error);
         const errorMessage =
-          error instanceof Error
-            ? error.message
-            : "原因不明のエラー";
+          getErrorMessage(error);
+
+        console.error(
+          "Firebase接続診断に失敗しました。",
+          error
+        );
 
         setTestState(
           "error"
         );
 
         setMessage(
-          `接続に失敗しました：${errorMessage}`
+          "Firebaseへの接続に失敗しました"
+        );
+
+        setDetail(
+          [
+            `Authentication: ${auth.currentUser !== null ? "OK" : "NG"}`,
+            `UID: ${auth.currentUser?.uid ?? "なし"}`,
+            `Error code: ${code}`,
+            `Error message: ${errorMessage}`,
+          ].join("\n")
         );
       }
     };
@@ -123,16 +162,12 @@ function FirebaseTestPage({
       style={{
         minHeight:
           "100vh",
-
         boxSizing:
           "border-box",
-
         padding:
           "30px",
-
         background:
           "#f5f5f5",
-
         color:
           "#111",
       }}
@@ -145,22 +180,16 @@ function FirebaseTestPage({
         style={{
           maxWidth:
             "800px",
-
           marginTop:
             "30px",
-
           padding:
             "30px",
-
           borderRadius:
             "18px",
-
           background:
             "#fff",
-
           fontSize:
             "26px",
-
           fontWeight:
             "bold",
         }}
@@ -169,11 +198,36 @@ function FirebaseTestPage({
           {message}
         </p>
 
+        {detail !== "" && (
+          <pre
+            style={{
+              whiteSpace:
+                "pre-wrap",
+              wordBreak:
+                "break-word",
+              marginTop:
+                "20px",
+              padding:
+                "20px",
+              borderRadius:
+                "12px",
+              background:
+                "#f0f0f0",
+              fontSize:
+                "18px",
+              fontWeight:
+                "normal",
+            }}
+          >
+            {detail}
+          </pre>
+        )}
+
         <button
           type="button"
           disabled={
             testState ===
-            "saving"
+            "testing"
           }
           onClick={() =>
             void runConnectionTest()
@@ -181,39 +235,31 @@ function FirebaseTestPage({
           style={{
             minHeight:
               "70px",
-
             padding:
               "12px 26px",
-
             border:
               "none",
-
             borderRadius:
               "14px",
-
             background:
               "#9966ee",
-
             color:
               "#fff",
-
             fontSize:
               "24px",
-
             fontWeight:
               "bold",
-
             cursor:
               testState ===
-              "saving"
+              "testing"
                 ? "wait"
                 : "pointer",
           }}
         >
           {testState ===
-          "saving"
-            ? "接続しています…"
-            : "Firebase接続テスト"}
+          "testing"
+            ? "診断しています…"
+            : "Firebase接続を診断"}
         </button>
       </div>
 
@@ -227,19 +273,14 @@ function FirebaseTestPage({
         style={{
           marginTop:
             "30px",
-
           border:
             "none",
-
           background:
             "transparent",
-
           fontSize:
             "28px",
-
           fontWeight:
             "bold",
-
           cursor:
             "pointer",
         }}
