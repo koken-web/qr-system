@@ -9,6 +9,7 @@ import {
   type DocumentData,
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
+  type Transaction,
   type Unsubscribe,
 } from "firebase/firestore";
 
@@ -61,6 +62,18 @@ type AnalyticsReceptionEvent = {
 };
 
 type AnalyticsSnapshot = DocumentSnapshot<DocumentData>;
+
+type LegacyAnalyticsActivity = {
+  type:
+    | "ticket-entry"
+    | "ticket-exit"
+    | "member-entry"
+    | "member-exit";
+  timestamp: string;
+  isReEntry?: boolean;
+  previousEntryAt?: string;
+  forcedExit?: boolean;
+};
 
 class AnalyticsRevisionChangedError extends Error {}
 
@@ -256,7 +269,6 @@ function calculateSummary(
       const previousState = stateByTicket.get(event.ticketId) ?? "outside";
 
       if (previousState === "inside") {
-        // 同一入場状態での重複記録は再入場とは数えない。
         continue;
       }
 
@@ -281,7 +293,6 @@ function calculateSummary(
     }
 
     if (stateByTicket.get(event.ticketId) !== "inside") {
-      // 入場記録のない退出や重複退出は履歴として保持し、現在状態には反映しない。
       continue;
     }
 
@@ -506,4 +517,91 @@ export function subscribeToEventAnalytics(
       onError?.(error);
     }
   );
+}
+
+export function getAnalyticsSnapshotForTransaction(
+  transaction: Transaction,
+  eventName: string
+) {
+  return transaction.get(getEventAnalyticsDocument(eventName));
+}
+
+export function markEventAnalyticsStaleInTransaction(
+  transaction: Transaction,
+  analyticsSnapshot: AnalyticsSnapshot
+) {
+  const revision = getRevision(analyticsSnapshot) + 1;
+
+  transaction.set(
+    analyticsSnapshot.ref,
+    {
+      schemaVersion: ANALYTICS_SCHEMA_VERSION,
+      revision,
+      needsRebuild: true,
+    },
+    { merge: true }
+  );
+}
+
+export async function markEventAnalyticsStale(eventName: string) {
+  const summaryDocument = getEventAnalyticsDocument(eventName);
+
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(summaryDocument);
+    markEventAnalyticsStaleInTransaction(transaction, snapshot);
+  });
+}
+
+export function applyActivityToAnalyticsTransaction(
+  transaction: Transaction,
+  analyticsSnapshot: AnalyticsSnapshot,
+  _activity: LegacyAnalyticsActivity
+) {
+  // ReceptionEvent が分析の正本になったため、旧activityの増分集計は行わず
+  // 再構築フラグだけを立てる。これにより既存のFirestore処理との互換性を保つ。
+  markEventAnalyticsStaleInTransaction(transaction, analyticsSnapshot);
+}
+
+export function createHourDataFromAnalytics(
+  summary: EventAnalyticsSummary,
+  eventDate: string,
+  startTime: string,
+  endTime: string
+): AnalyticsHourData[] {
+  if (
+    eventDate.trim() === "" ||
+    !/^\d{2}:\d{2}$/.test(startTime) ||
+    !/^\d{2}:\d{2}$/.test(endTime)
+  ) {
+    return [];
+  }
+
+  const startDate = new Date(`${eventDate}T${startTime}:00`);
+  const endDate = new Date(`${eventDate}T${endTime}:00`);
+
+  if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime())) {
+    return [];
+  }
+
+  if (endDate.getTime() <= startDate.getTime()) {
+    return [];
+  }
+
+  const result: AnalyticsHourData[] = [];
+  const cursor = new Date(startDate);
+  cursor.setMinutes(0, 0, 0);
+
+  while (cursor.getTime() < endDate.getTime()) {
+    const bucket = createHourBucket(cursor.getTime());
+    const label = `${String(cursor.getHours()).padStart(2, "0")}:00`;
+
+    result.push({
+      label,
+      count: bucket === null ? 0 : summary.hourlyEntryCounts[bucket] ?? 0,
+    });
+
+    cursor.setHours(cursor.getHours() + 1);
+  }
+
+  return result;
 }
