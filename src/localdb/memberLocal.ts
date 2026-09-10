@@ -74,6 +74,78 @@ export async function getMemberByQrToken(
   );
 }
 
+export async function getMemberByQrCredentials(
+  eventId: string,
+  qrNumber: string,
+  authToken: string,
+): Promise<Member | undefined> {
+  const members = await getMembers(eventId);
+
+  return members.find(
+    (member) =>
+      member.qrToken === authToken &&
+      member.id === qrNumber,
+  );
+}
+
+export async function updateMemberStatus(
+  memberId: string,
+  status: Member["status"],
+  updatedAt = Date.now(),
+): Promise<Member | undefined> {
+  const database = await getDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(
+      DB_STORES.members,
+      "readwrite",
+    );
+    const store = transaction.objectStore(
+      DB_STORES.members,
+    );
+    const request = store.get(memberId);
+
+    request.onsuccess = () => {
+      const member = request.result as Member | undefined;
+
+      if (!member) {
+        return;
+      }
+
+      store.put({
+        ...member,
+        status,
+        updatedAt,
+      });
+    };
+
+    request.onerror = () => {
+      reject(
+        request.error ??
+          new Error("Failed to read member."),
+      );
+    };
+
+    transaction.oncomplete = () => {
+      resolve(undefined);
+    };
+
+    transaction.onerror = () => {
+      reject(
+        transaction.error ??
+          new Error("Failed to update member status."),
+      );
+    };
+
+    transaction.onabort = () => {
+      reject(
+        transaction.error ??
+          new Error("Member status update was aborted."),
+      );
+    };
+  });
+}
+
 export async function getMembers(
   eventId?: string,
 ): Promise<Member[]> {
