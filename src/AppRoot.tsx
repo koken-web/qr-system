@@ -57,12 +57,12 @@ function AppRoot() {
     "checking"
   );
 
+  // 管制アプリと同じく、Firebaseの端末権限確認そのものを
+  // アプリ全体の起動待ちにしない。
+  // 権限確認中・エラー時の表示はDeviceAccessGateへ任せる。
   const canFinishSplash =
     authState === "error" ||
-    (
-      authState === "ready" &&
-      accessState !== "checking"
-    );
+    authState === "ready";
 
   return (
     <AppSplashScreen
@@ -96,7 +96,6 @@ function AppRoot() {
           </DeviceAccessGate>
         </Suspense>
       </DeviceAuthGate>
-
     </AppSplashScreen>
   );
 }
