@@ -492,6 +492,11 @@ service cloud.firestore {
       allow delete: if memberDevice();
     }
 
+    match /system/current-event {
+      allow read: if signedIn();
+      allow write: if memberDevice();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
