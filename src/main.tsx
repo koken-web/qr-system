@@ -14,6 +14,58 @@ import {
 import "./index.css";
 import "./moved-data-controls.css";
 
+const SERVICE_WORKER_RESET_KEY =
+  "qr-system-service-worker-reset-2026-09-11";
+
+/*
+  古いPWAキャッシュと新しいJavaScriptの組み合わせで
+  白画面になるケースを一度だけ解消します。
+
+  リセット後は通常どおりService Workerを再登録できるため、
+  オフライン受付そのものを恒久的に無効にはしません。
+*/
+const resetStaleServiceWorkerOnce = () => {
+  if (
+    !("serviceWorker" in navigator) ||
+    localStorage.getItem(
+      SERVICE_WORKER_RESET_KEY
+    ) === "done"
+  ) {
+    return;
+  }
+
+  localStorage.setItem(
+    SERVICE_WORKER_RESET_KEY,
+    "done"
+  );
+
+  void navigator.serviceWorker
+    .getRegistrations()
+    .then(async (registrations) => {
+      await Promise.all(
+        registrations.map((registration) =>
+          registration.unregister()
+        )
+      );
+
+      const cacheNames =
+        await caches.keys();
+
+      await Promise.all(
+        cacheNames.map((cacheName) =>
+          caches.delete(cacheName)
+        )
+      );
+
+      window.location.reload();
+    })
+    .catch((error) => {
+      console.warn(
+        "Service Workerのリセットに失敗しました。",
+        error
+      );
+    });
+};
 
 /*
   GitHub Pagesへ新しい版が公開されても、開いたままのPWAは
@@ -65,10 +117,27 @@ const installAutomaticAppUpdate = () => {
   );
 };
 
+resetStaleServiceWorkerOnce();
 installAutomaticAppUpdate();
 installIntentionalReceptionStopGuard();
-startOfflineReceptionSync();
-startOfflineDataPreparation();
+
+try {
+  startOfflineReceptionSync();
+} catch (error) {
+  console.warn(
+    "オフライン受付同期の起動に失敗しました。",
+    error
+  );
+}
+
+try {
+  startOfflineDataPreparation();
+} catch (error) {
+  console.warn(
+    "オフラインデータ準備の起動に失敗しました。",
+    error
+  );
+}
 
 /*
   iPad用印刷画面が表示されるたびに、
