@@ -304,12 +304,10 @@ export default defineConfig({
         ],
 
         /*
-          受付本番で最初に使わない管理・分析・印刷系は
-          初回PWA保存から外します。必要な画面を開いた時だけ
-          通常のブラウザキャッシュへ入り、受付・QR読取の起動を優先します。
-
-          カメラ、React、Firebase、入口・出口など
-          受付に必要なチャンクは引き続き事前保存します。
+          大きな印刷・PDF関連だけ初回PWA保存から外します。
+          管理・分析・設定・管制などの画面チャンクは
+          事前キャッシュ対象に戻し、オフライン時にも
+          lazy importで白画面になりにくくします。
         */
         globIgnores: [
           "**/html2canvas-*.js",
@@ -320,18 +318,6 @@ export default defineConfig({
           "**/MemberCardDesigner-*.js",
           "**/backupRestore-*.js",
           "**/manualPrintSupport-*.js",
-          "**/AnalysisPage-*.{js,css}",
-          "**/PastDataPage-*.{js,css}",
-          "**/SettingsPage-*.{js,css}",
-          "**/AdminPage-*.{js,css}",
-          "**/AdminAuthPage-*.{js,css}",
-          "**/DeviceManagementPage-*.{js,css}",
-          "**/CreateEventPage-*.{js,css}",
-          "**/EventManagementPage-*.{js,css}",
-          "**/MembersPage-*.{js,css}",
-          "**/TicketsPage-*.{js,css}",
-          "**/ControlPage-*.{js,css}",
-          "**/FirebaseTestPage-*.js",
         ],
 
         cleanupOutdatedCaches:
@@ -345,7 +331,7 @@ export default defineConfig({
           "index.html",
 
         /*
-          管制PWAは /control/ 配下に独自のService Workerを持ちます。
+          管制PWAはcontrol-app側のService Workerを使用するため、
           受付PWAが管制画面への移動を横取りしないよう除外します。
         */
         navigateFallbackDenylist: [
