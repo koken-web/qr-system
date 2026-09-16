@@ -1,0 +1,278 @@
+.management-entry-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  padding: 28px clamp(20px, 4vw, 64px) 48px;
+  background: linear-gradient(135deg, #f6f2ff 0%, #ffffff 48%, #eef7ff 100%);
+  color: #20202a;
+}
+
+.management-entry-orb {
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(2px);
+  opacity: 0.5;
+}
+
+.management-entry-orb-one {
+  width: 320px;
+  height: 320px;
+  top: -150px;
+  right: -90px;
+  background: #ded2ff;
+}
+
+.management-entry-orb-two {
+  width: 240px;
+  height: 240px;
+  bottom: -120px;
+  left: -90px;
+  background: #d9efff;
+}
+
+.management-entry-header {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+}
+
+.management-entry-back {
+  border: 0;
+  background: rgba(255, 255, 255, 0.75);
+  color: #4f4b61;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(60, 45, 110, 0.08);
+}
+
+.management-entry-header-label {
+  color: #7d68b5;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+}
+
+.management-entry-main {
+  width: min(1080px, 100%);
+  margin: clamp(50px, 9vh, 100px) auto 0;
+  position: relative;
+  z-index: 1;
+}
+
+.management-entry-hero {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+
+.management-entry-icon,
+.management-entry-action-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: #7257bb;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 18px 42px rgba(82, 58, 145, 0.12);
+}
+
+.management-entry-icon {
+  width: 88px;
+  height: 88px;
+  border-radius: 26px;
+}
+
+.management-entry-icon svg {
+  width: 52px;
+  height: 52px;
+}
+
+.management-entry-kicker {
+  margin: 0 0 5px;
+  color: #765cb8;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.management-entry-hero h1 {
+  margin: 0;
+  font-size: clamp(34px, 5vw, 58px);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.management-entry-description {
+  max-width: 720px;
+  margin: 15px 0 0;
+  color: #666372;
+  font-size: 18px;
+  line-height: 1.75;
+}
+
+.management-entry-status {
+  margin-top: 44px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 17px 20px;
+  border: 1px solid rgba(105, 87, 157, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(10px);
+}
+
+.management-entry-status-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #9b94a8;
+  box-shadow: 0 0 0 6px rgba(155, 148, 168, 0.12);
+}
+
+.management-entry-status-dot.active {
+  background: #35a96b;
+  box-shadow: 0 0 0 6px rgba(53, 169, 107, 0.13);
+}
+
+.management-entry-status-label {
+  display: block;
+  color: #777180;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.management-entry-status strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 18px;
+}
+
+.management-entry-action-card {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 22px;
+  padding: 26px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 70px rgba(54, 43, 94, 0.14);
+}
+
+.management-entry-action-icon {
+  width: 68px;
+  height: 68px;
+  border-radius: 20px;
+  box-shadow: none;
+  background: #f2edff;
+}
+
+.management-entry-action-icon svg {
+  width: 38px;
+  height: 38px;
+}
+
+.management-entry-action-copy > span {
+  color: #765cb8;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.management-entry-action-copy h2 {
+  margin: 4px 0 4px;
+  font-size: clamp(21px, 3vw, 28px);
+}
+
+.management-entry-action-copy p {
+  margin: 0;
+  color: #77727f;
+  line-height: 1.5;
+}
+
+.management-entry-primary-button {
+  min-height: 58px;
+  border: 0;
+  border-radius: 16px;
+  padding: 0 20px 0 23px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #7257bb;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.management-entry-primary-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.management-entry-note {
+  margin: 18px 4px 0;
+  color: #85808d;
+  font-size: 14px;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .management-entry-page {
+    padding: 18px 16px 32px;
+  }
+
+  .management-entry-header-label {
+    display: none;
+  }
+
+  .management-entry-main {
+    margin-top: 44px;
+  }
+
+  .management-entry-hero {
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .management-entry-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 19px;
+  }
+
+  .management-entry-icon svg {
+    width: 38px;
+    height: 38px;
+  }
+
+  .management-entry-description {
+    font-size: 16px;
+  }
+
+  .management-entry-action-card {
+    grid-template-columns: auto 1fr;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .management-entry-primary-button {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .management-entry-note {
+    text-align: left;
+  }
+}
