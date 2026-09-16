@@ -4,27 +4,23 @@ import "./ManagementEntryPage.css";
 
 type ManagementEntryPageProps = {
   eventConfigured: boolean;
-  eventActive: boolean;
   eventName: string;
-  onOpenAdmin: () => void;
-  onOpenAdminAuth: () => void;
-  onBack: () => void;
+  onNavigate: (page: string) => void;
+  onReturn: () => void;
 };
 
 function ManagementEntryPage({
   eventConfigured,
-  eventActive: _eventActive,
   eventName,
-  onOpenAdmin,
-  onOpenAdminAuth: _onOpenAdminAuth,
-  onBack,
+  onNavigate,
+  onReturn,
 }: ManagementEntryPageProps) {
   return (
     <ManagementHomePage
       eventConfigured={eventConfigured}
       eventName={eventName}
-      onNavigate={onOpenAdmin}
-      onReturn={onBack}
+      onNavigate={onNavigate}
+      onReturn={onReturn}
     />
   );
 }
