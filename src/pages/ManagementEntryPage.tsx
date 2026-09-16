@@ -47,27 +47,6 @@ function ArrowIcon() {
   );
 }
 
-function ManagementLoadError({ onBack }: { onBack: () => void }) {
-  return (
-    <div className="management-entry-page">
-      <main className="management-entry-main">
-        <section className="management-entry-action-card">
-          <div className="management-entry-action-icon"><ShieldIcon /></div>
-          <div className="management-entry-action-copy">
-            <span>管理画面</span>
-            <h2>管理画面を読み込めませんでした</h2>
-            <p>管理機能の読み込みに失敗しました。受付画面には影響しません。</p>
-          </div>
-          <button type="button" className="management-entry-primary-button" onClick={onBack}>
-            戻る
-            <ArrowIcon />
-          </button>
-        </section>
-      </main>
-    </div>
-  );
-}
-
 function ManagementEntryPage({
   eventConfigured,
   eventActive,
