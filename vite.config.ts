@@ -314,7 +314,7 @@ export default defineConfig({
           "**/jspdf.es.min-*.js",
           "**/purify.es-*.js",
           "**/index.es-*.js",
-          "**/TicketDesigner-*.{js,css}",
+          "**/TicketDesigner-*.js",
           "**/MemberCardDesigner-*.js",
           "**/backupRestore-*.js",
           "**/manualPrintSupport-*.js",
