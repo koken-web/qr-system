@@ -197,6 +197,15 @@ function MembersPage({
   ] = useState(false);
 
   useEffect(() => {
+    // 管理画面も受付画面と同じ端末内キャッシュを即時表示します。
+    // オフライン時はFirestoreのonSnapshotを待たずに部員台帳を表示します。
+    const cachedCards = getCachedMemberCards();
+
+    if (cachedCards.length > 0) {
+      setMemberCards(cachedCards);
+      setCardsLoading(false);
+    }
+
     const unsubscribe =
       subscribeToMemberCards(
         (cards) => {
@@ -214,6 +223,16 @@ function MembersPage({
         },
 
         (error) => {
+          const fallbackCards =
+            getCachedMemberCards();
+
+          if (fallbackCards.length > 0) {
+            setMemberCards(fallbackCards);
+            setCardsLoading(false);
+            setLoadingError("");
+            return;
+          }
+
           setCardsLoading(
             false
           );
@@ -234,6 +253,15 @@ function MembersPage({
 
     let unsubscribe =
       () => {};
+
+    // イベント別の部員名・状態もキャッシュから先に復元します。
+    const cachedMembers =
+      getCachedEventMembers(eventName);
+
+    if (cachedMembers.length > 0) {
+      setEventMembers(cachedMembers);
+      setMembersLoading(false);
+    }
 
     queueMicrotask(() => {
       if (cancelled) {
@@ -278,6 +306,16 @@ function MembersPage({
           },
 
           (error) => {
+            const fallbackMembers =
+              getCachedEventMembers(eventName);
+
+            if (fallbackMembers.length > 0) {
+              setEventMembers(fallbackMembers);
+              setMembersLoading(false);
+              setLoadingError("");
+              return;
+            }
+
             setMembersLoading(
               false
             );
