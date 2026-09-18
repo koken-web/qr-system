@@ -815,6 +815,46 @@ export function acceptMemberReceptionOffline(
   };
 }
 
+export function getCachedMemberCards(): CachedMemberCard[] {
+  const cache = readCache();
+
+  return Object.values(cache.memberCards)
+    .map((card) => ({ ...card }))
+    .sort((first, second) =>
+      first.qrNumber.localeCompare(
+        second.qrNumber,
+        "ja-JP",
+        { numeric: true }
+      )
+    );
+}
+
+export function getCachedEventMembers(
+  eventName: string
+): CachedEventMember[] {
+  if (eventName.trim() === "") {
+    return [];
+  }
+
+  const cache = readCache();
+  const eventCache =
+    cache.events[getEventKey(eventName)];
+
+  if (eventCache === undefined) {
+    return [];
+  }
+
+  return Object.values(eventCache.members)
+    .map((member) => ({ ...member }))
+    .sort((first, second) =>
+      first.qrNumber.localeCompare(
+        second.qrNumber,
+        "ja-JP",
+        { numeric: true }
+      )
+    );
+}
+
 export function updateCachedTicketStatus(
   eventName: string,
   qrNumber: string,
