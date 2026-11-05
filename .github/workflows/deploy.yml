@@ -1,81 +1,63 @@
-name: Deploy to GitHub Pages
-
+name: Deploy new apps at existing URLs
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
-# Pagesの公開処理は同時に1つだけ実行します。
-# 新しい公開が始まった場合は、古い実行を自動的に終了します。
 concurrency:
   group: pages
   cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Checkout hosting configuration and retained legacy source
+        uses: actions/checkout@v4
+      - name: Checkout reviewed new application source
+        uses: actions/checkout@v4
         with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install control app dependencies
-        run: npm ci --prefix control-app
-
-      - name: Check source code
-        run: npm run lint
-
-      - name: Check control app source code
-        run: npm run lint --prefix control-app
-
-      - name: Build website
-        run: npm run build
-
-      - name: Build control app
-        run: npm run build --prefix control-app
-
-      - name: Add control app to website
-        run: |
-          mkdir -p dist/control
-          cp -R control-app/dist/. dist/control/
-
-      - name: Setup GitHub Pages
+          repository: 1453manamana5-web/QR-Ticket-System
+          ref: 0bca44e69ba216252e13ef5a0d32bbdd76fdfd6c
+          path: next-app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Configure the existing new-app Firebase client
+        run: node deployment/configure-client.mjs
+      - name: Install new application dependencies
+        working-directory: next-app
+        run: npm install
+      - name: Client regression tests
+        working-directory: next-app
+        run: npm run test:client
+      - name: Build reception at original URL
+        working-directory: next-app
+        run: npm run build --workspace reception-app -- --base=/qr-system/
+      - name: Build management at original control URL
+        working-directory: next-app
+        run: npm run build --workspace management-app -- --base=/qr-system/control/
+      - name: Assemble and verify both entry points and PWA files
+        run: python3 deployment/prepare-pages.py
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
-
-      - name: Upload website
-        uses: actions/upload-pages-artifact@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
-
+          path: site
   deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    needs:
-      - build
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
-      - name: Deploy website
+      - name: Deploy to the original URLs
         id: deployment
         uses: actions/deploy-pages@v4
-        with:
-          timeout: 1200000
