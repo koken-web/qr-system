@@ -4,6 +4,38 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 
 const template = readFileSync(new URL('./service-worker.js', import.meta.url), 'utf8');
+const startup = readFileSync(new URL('./offline-setup.js', import.meta.url), 'utf8');
+
+for (const path of ['/qr-system/', '/qr-system/control/']) {
+  for (const state of ['loading', 'complete']) {
+    test(`${path}: normal ${state} startup automatically saves its own app without a setup screen`, () => {
+      const calls = [], listeners = {};
+      vm.runInNewContext(startup, {
+        URL, console,
+        document: {currentScript: {src: `https://koken-web.github.io${path}offline-setup.js`}, readyState: state},
+        window: {addEventListener: (type, callback, options) => {assert.equal(options.once, true); listeners[type] = callback;}},
+        navigator: {serviceWorker: {register: (url, options) => {calls.push({url, scope: options.scope}); return Promise.resolve({});}}}
+      });
+      if (state === 'loading') {assert.equal(calls.length, 0); listeners.load();}
+      assert.deepEqual(calls, [{url: `https://koken-web.github.io${path}sw.js`, scope: path}]);
+    });
+  }
+}
+
+test('unsupported browsers still start without an offline setup prompt', () => {
+  assert.doesNotThrow(() => vm.runInNewContext(startup, {navigator: {}}));
+});
+
+test('offline registration failure is handled without replacing the app screen', async () => {
+  const warnings = [];
+  vm.runInNewContext(startup, {
+    URL, console: {warn: (...args) => warnings.push(args)},
+    document: {currentScript: {src: 'https://koken-web.github.io/qr-system/offline-setup.js'}, readyState: 'complete'},
+    navigator: {serviceWorker: {register: () => Promise.reject(Error('offline'))}}
+  });
+  await Promise.resolve();
+  assert.equal(warnings.length, 1);
+});
 
 function harness(app = 'reception', version = 'test') {
   const base = `https://koken-web.github.io/qr-system/${app === 'management' ? 'control/' : ''}`;

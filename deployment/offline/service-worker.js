@@ -74,7 +74,7 @@ self.addEventListener('fetch', event => {
     if (saved) return saved;
     try { return await fetchFile(request.url); }
     catch {
-      return new Response(isEntry ? 'この端末にはまだ画面が保存されていません。自宅など接続できる回線でオフライン準備を完了してください。' : '', {
+      return new Response(isEntry ? 'この端末にはまだ画面が保存されていません。オンラインで一度、このアプリを開いてから再試行してください。' : '', {
         status: 503, headers: {'Content-Type': 'text/plain; charset=utf-8'}
       });
     }

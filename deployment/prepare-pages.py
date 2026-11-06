@@ -18,8 +18,7 @@ for folder,base,title,app in [(site,'/qr-system/','QR受付','reception'),(site/
  html=re.sub(r'<meta\b(?=[^>]*\bname=["\'](?:theme-color|apple-mobile-web-app-capable|apple-mobile-web-app-title)["\'])[^>]*>','',html,flags=re.I)
  links='<link rel="manifest" href="./manifest.webmanifest"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#7048eb">'
  links+=f'<meta name="apple-mobile-web-app-title" content="{title}"><link rel="icon" type="image/png" sizes="32x32" href="./{icon}-32.png"><link rel="apple-touch-icon" sizes="180x180" href="./{icon}-180.png">'
- root='../' if app=='management' else './'
- links+=f'<script defer src="./offline-setup.js" data-root="{root}"></script>'
+ links+='<script defer src="./offline-setup.js"></script>'
  shutil.copy2('deployment/offline/offline-setup.js',folder/'offline-setup.js')
  (folder/'index.html').write_text(html.replace('</head>',links+'</head>'))
  assert '/QR-Ticket-System/' not in html
