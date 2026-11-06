@@ -29,6 +29,8 @@ jobs:
           node-version: 22
       - name: Configure the existing new-app Firebase client
         run: node deployment/configure-client.mjs
+      - name: Offline startup regression tests
+        run: node --test deployment/offline/service-worker.test.mjs
       - name: Install new application dependencies
         working-directory: next-app
         run: npm install
