@@ -14,10 +14,10 @@ for (const path of ['/qr-system/', '/qr-system/control/']) {
         URL, console,
         document: {currentScript: {src: `https://koken-web.github.io${path}offline-setup.js`}, readyState: state},
         window: {addEventListener: (type, callback, options) => {assert.equal(options.once, true); listeners[type] = callback;}},
-        navigator: {serviceWorker: {register: (url, options) => {calls.push({url, scope: options.scope}); return Promise.resolve({});}}}
+        navigator: {serviceWorker: {register: (url, options) => {calls.push({url, scope: options.scope,updateViaCache:options.updateViaCache}); return Promise.resolve({});}}}
       });
       if (state === 'loading') {assert.equal(calls.length, 0); listeners.load();}
-      assert.deepEqual(calls, [{url: `https://koken-web.github.io${path}sw.js`, scope: path}]);
+      assert.deepEqual(calls, [{url: `https://koken-web.github.io${path}sw.js`, scope: path,updateViaCache:'none'}]);
     });
   }
 }
@@ -37,9 +37,10 @@ test('offline registration failure is handled without replacing the app screen',
   assert.equal(warnings.length, 1);
 });
 
-function harness(app = 'reception', version = 'test') {
+function harness(app = 'reception', version = 'test', {manualClock=false}={}) {
   const base = `https://koken-web.github.io/qr-system/${app === 'management' ? 'control/' : ''}`;
-  const handlers = {}, storage = new Map(), calls = [];
+  const handlers = {}, storage = new Map(), calls = [], timers=new Map();
+  let timerId=0;
   const files = ['index.html', 'assets/app.js', 'assets/lazy.js', 'sounds/ok.wav', 'icons/app.png'];
   let fetcher = async url => new Response(url.endsWith('offline-assets.json') ? JSON.stringify(files) : `saved:${url}`);
   const caches = {
@@ -53,7 +54,9 @@ function harness(app = 'reception', version = 'test') {
   };
   const self = {location: {href: base + 'sw.js'}, addEventListener: (type, fn) => {handlers[type] = fn;}, skipWaiting: async () => {}, clients: {claim: async () => {}}};
   vm.runInNewContext(template.replace('__APP__', app).replace('__VERSION__', version), {
-    self, caches, URL, Response, AbortController, setTimeout, clearTimeout,
+    self, caches, URL, Response, Headers, AbortController,
+    setTimeout:manualClock?fn=>{timers.set(++timerId,fn);return timerId;}:setTimeout,
+    clearTimeout:manualClock?id=>timers.delete(id):clearTimeout,
     fetch: async (url, options) => {calls.push(String(url)); return fetcher(String(url), options);}
   });
   async function lifecycle(type) {
@@ -66,7 +69,7 @@ function harness(app = 'reception', version = 'test') {
     handlers.fetch({request: {url: new URL(path, base).href, mode, method}, respondWith: promise => {pending = promise;}});
     return pending;
   }
-  return {base, caches, files, calls, handlers, storage, lifecycle, request, setFetch: fn => {fetcher = fn;}};
+  return {base, caches, files, calls, handlers, storage, lifecycle, request, fireTimers:()=>{for(const fn of timers.values())fn();timers.clear();},setFetch: fn => {fetcher = fn;}};
 }
 
 for (const app of ['reception', 'management']) {
@@ -138,4 +141,32 @@ test('precache cannot include the other app or external data', async () => {
     h.setFetch(async () => new Response(JSON.stringify(['index.html', path])));
     await assert.rejects(h.lifecycle('install'));
   }
+});
+
+test('updates retain one complete previous build for lazy imports from already-open tabs',async()=>{
+  const h=harness('management');
+  const oldest=await h.caches.open('qr-ticket-management-shell-oldest');
+  await oldest.put(h.base+'index.html',new Response('obsolete HTML'));
+  const previous=await h.caches.open('qr-ticket-management-shell-previous');
+  await previous.put(h.base+'index.html',new Response('previous HTML'));
+  await previous.put(h.base+'assets/old-lazy.js',new Response('previous chunk'));
+  await h.caches.open('qr-ticket-management-shell-v1');
+  await h.lifecycle('install');await h.lifecycle('activate');
+  assert.deepEqual((await h.caches.keys()).sort(),['qr-ticket-management-shell-previous','qr-ticket-management-shell-test']);
+  h.calls.length=0;h.setFetch(()=>{throw Error('offline');});
+  assert.equal(await (await h.request('assets/old-lazy.js','cors')).text(),'previous chunk');
+  assert.notEqual(await (await h.request()).text(),'previous HTML');
+  assert.equal(h.calls.length,0);
+});
+
+test('a body stalled after successful HTTP headers times out and preserves the existing build',async()=>{
+  const h=harness('reception','test',{manualClock:true});
+  const old=await h.caches.open('qr-ticket-reception-shell-old');
+  await old.put(h.base+'index.html',new Response('previous complete app'));
+  h.setFetch(async()=>({ok:true,redirected:false,status:200,statusText:'OK',headers:new Headers(),arrayBuffer:()=>new Promise(()=>{})}));
+  const installing=h.lifecycle('install');
+  for(let i=0;i<8;i++)await Promise.resolve();
+  h.fireTimers();
+  await assert.rejects(installing,/タイムアウト/);
+  assert.deepEqual(await h.caches.keys(),['qr-ticket-reception-shell-old']);
 });

@@ -12,11 +12,23 @@ function belongsToApp(url) {
 
 async function fetchFile(url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  let timer;
   try {
-    const response = await fetch(url, {cache: 'reload', signal: controller.signal});
-    if (!response.ok || response.redirected) throw new Error('アプリの保存に失敗しました');
-    return response;
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(url, {cache: 'reload', signal: controller.signal});
+        if (!response.ok || response.redirected) throw new Error('アプリの保存に失敗しました');
+        // A response may arrive before its body stalls. Do not declare the
+        // download finished (or clear the timeout) after headers alone.
+        const body = await response.arrayBuffer();
+        const headers = new Headers(response.headers);
+        headers.delete('content-encoding'); headers.delete('content-length');
+        return new Response(body, {status: response.status, statusText: response.statusText, headers});
+      })(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {controller.abort(); reject(new Error('アプリの保存がタイムアウトしました'));}, 15000);
+      })
+    ]);
   } finally { clearTimeout(timer); }
 }
 
@@ -45,8 +57,14 @@ self.addEventListener('install', event => event.waitUntil((async () => {
 })()));
 
 self.addEventListener('activate', event => event.waitUntil((async () => {
-  for (const name of await caches.keys()) {
-    if (name.startsWith(`qr-ticket-${APP}-shell-`) && name !== CACHE) await caches.delete(name);
+  const previous=(await caches.keys()).filter(name=>name.startsWith(`qr-ticket-${APP}-shell-`) && name!==CACHE);
+  let retained=false;
+  for (const name of previous.reverse()) {
+    // An already-open tab may still import a chunk from the previous build.
+    // Keep one usable previous shell; discard empty legacy readiness caches.
+    const cache=await caches.open(name);
+    if(!retained && await cache.match(INDEX)){retained=true;continue;}
+    await caches.delete(name);
   }
   await self.clients.claim();
 })()));
@@ -72,6 +90,13 @@ self.addEventListener('fetch', event => {
     // No network wait: Wi-Fi may remain "online" while GitHub Pages is blocked.
     const saved = await cache.match(isEntry ? INDEX : url.href);
     if (saved) return saved;
+    if(!isEntry && url.pathname.startsWith(BASE.pathname+'assets/')){
+      for(const name of (await caches.keys()).reverse()){
+        if(name===CACHE || !name.startsWith(`qr-ticket-${APP}-shell-`))continue;
+        const previous=await (await caches.open(name)).match(url.href);
+        if(previous)return previous;
+      }
+    }
     try { return await fetchFile(request.url); }
     catch {
       return new Response(isEntry ? 'この端末にはまだ画面が保存されていません。オンラインで一度、このアプリを開いてから再試行してください。' : '', {
