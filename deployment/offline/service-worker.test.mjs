@@ -170,3 +170,19 @@ test('a body stalled after successful HTTP headers times out and preserves the e
   await assert.rejects(installing,/タイムアウト/);
   assert.deepEqual(await h.caches.keys(),['qr-ticket-reception-shell-old']);
 });
+
+test('management refresh.html bypasses an existing cache-first offline shell',async()=>{
+  const h=harness('management');
+  await h.lifecycle('install');await h.lifecycle('activate');
+  let refreshed=false;
+  h.setFetch(async(url)=>{
+    if(url.endsWith('/refresh.html')) { refreshed=true; return new Response('latest management build'); }
+    throw Error('unexpected fetch: '+url);
+  });
+  const response=await h.request('refresh.html');
+  assert.equal(refreshed,true);
+  assert.equal(response.status,200);
+  assert.equal(await response.text(),'latest management build');
+  const cached=await h.caches.open('qr-ticket-management-shell-test');
+  assert.equal(await cached.match(h.base+'refresh.html'),undefined);
+});
