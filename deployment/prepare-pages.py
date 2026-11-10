@@ -21,6 +21,12 @@ for folder,base,title,app in [(site,'/qr-system/','QR受付','reception'),(site/
  links+='<script defer src="./offline-setup.js"></script>'
  shutil.copy2('deployment/offline/offline-setup.js',folder/'offline-setup.js')
  (folder/'index.html').write_text(html.replace('</head>',links+'</head>'))
+ if app == 'management':
+  # A separate online-only entry bypasses older cache-first Service Workers.
+  # Keep it out of the offline precache, while retaining the standard offline URL.
+  shutil.copy2(folder/'index.html',folder/'refresh.html')
+  assert any('チケットをまとめて削除' in file.read_text(encoding='utf-8')
+             for file in (folder/'assets').glob('*.js')), 'New management build lacks the bulk-delete shortcut'
  assert '/QR-Ticket-System/' not in html
  for path in re.findall(r'(?:src|href)=["\']([^"\']+)["\']',html):
   if path.startswith(base):assert (folder/path[len(base):]).is_file(),path
@@ -37,6 +43,8 @@ for folder,base,title,app in [(site,'/qr-system/','QR受付','reception'),(site/
  for path in paths:
   digest.update(path.encode());digest.update((folder/path).read_bytes())
  (folder/'sw.js').write_text(template.replace('__APP__',app).replace('__VERSION__',digest.hexdigest()[:16]))
+assert (site/'control/refresh.html').is_file()
+assert 'refresh.html' not in json.loads((site/'control/offline-assets.json').read_text())
 assert (site/'control/offline-assets.json').is_file()
 for path in json.loads((site/'control/offline-assets.json').read_text()):assert (site/'control'/path).is_file()
 (site/'deployment.json').write_text(json.dumps({'sourceRepository':'1453manamana5-web/QR-Ticket-System','sourceCommit':subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip(),'firebaseProject':'qr-ticket-system-5ba69','receptionBase':'/qr-system/','managementBase':'/qr-system/control/'}))
