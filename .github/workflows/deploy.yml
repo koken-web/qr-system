@@ -18,11 +18,11 @@ jobs:
     steps:
       - name: Checkout hosting configuration and retained legacy source
         uses: actions/checkout@v4
-      - name: Checkout reviewed new application source
+      - name: Checkout current reviewed reception and management source
         uses: actions/checkout@v4
         with:
           repository: 1453manamana5-web/QR-Ticket-System
-          ref: a1fe7103c1e350755d9333599d9a177e2611883f
+          ref: 472683e2bf52e4596d5e6ba432681a4694d05362
           path: next-app
       - uses: actions/setup-node@v4
         with:
@@ -37,10 +37,10 @@ jobs:
       - name: Client regression tests
         working-directory: next-app
         run: npm run test:client
-      - name: Build reception at original URL
+      - name: Build reception at new reception URL
         working-directory: next-app
         run: npm run build --workspace reception-app -- --base=/qr-system/
-      - name: Build management at original control URL
+      - name: Build management at new control URL
         working-directory: next-app
         run: npm run build --workspace management-app -- --base=/qr-system/control/
       - name: Assemble and verify both entry points and PWA files
@@ -60,6 +60,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to the original URLs
+      - name: Deploy to the new reception and management URLs
         id: deployment
         uses: actions/deploy-pages@v4
