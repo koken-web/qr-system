@@ -101,3 +101,24 @@ test("network events must never directly set status without a probe", () => {
   assert.match(effect, /consecutiveFailures>=3/);
   assert.match(effect, /Date\.now\(\)-firstFailureAt>=15000/);
 });
+
+test("a transient browser offline notification cannot cancel a verified reception approval", () => {
+  const marker = "const readCachedApproval=()=>{";
+  const at = source.indexOf(marker);
+  assert.ok(at >= 0, "registration logic is present in the deployed app");
+  const start = source.lastIndexOf("  useEffect(()=>{", at);
+  const end = source.indexOf("  },[]);", at);
+  assert.ok(start >= 0 && end > start, "registration subscription effect is present");
+  const registration = source.slice(start, end + "  },[]);".length);
+  assert.doesNotMatch(registration, /handleOffline=\(\)=>applyRegistration\(null\)/,
+    "browser connectivity is not a registration revocation");
+  assert.doesNotMatch(registration, /addEventListener\("offline",handleOffline\)/);
+  assert.match(registration, /if\(incoming\?\.approved===true\)/,
+    "a server-verified approval is cached even if the last terminal heartbeat was offline");
+  assert.doesNotMatch(registration, /setOnline\(false\)/,
+    "Firebase subscription timeouts cannot reset the online status badge");
+  assert.doesNotMatch(registration, /setOnline\(value\.status/,
+    "last terminal heartbeat status is not an authoritative connectivity check");
+  const writes = [...source.matchAll(/setOnline\(/g)].length;
+  assert.equal(writes, 2, "only the debounced connectivity effect sets online/offline");
+});
