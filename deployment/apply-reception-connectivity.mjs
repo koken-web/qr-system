@@ -105,6 +105,33 @@ app=replaceOnce(app,
   '      window.removeEventListener("online",syncPendingRecords);\n    };',
   '      window.removeEventListener("online",syncPendingRecords);\n      window.removeEventListener("qr-reception-network-ready",syncPendingRecords);\n    };',
   "pending sync wake cleanup");
+// Network status is owned by the debounced Firestore reachability probe.
+// A terminal's last heartbeat and individual read timeout must not change the
+// status badge or revoke the current event's cached approval.
+app=replaceOnce(app,
+  '        setOnline(value.status==="offline"?false:canAttemptReceptionNetwork());\\n        if(canAttemptReceptionNetwork()&&value.status!=="offline"){',
+  '        // A successful authenticated approval check is authoritative even\\n        // when the terminal heartbeat still says offline.\\n        if(incoming?.approved===true){',
+  "cache verified approval independent of terminal heartbeat");
+app=replaceOnce(app,
+  '      else if(!canAttemptReceptionNetwork()||code==="unavailable"||code==="deadline-exceeded"||code==="auth/network-request-failed"){\\n        setOnline(false);\\n        applyRegistration(null,true);',
+  '      else if(!canAttemptReceptionNetwork()||code==="unavailable"||code==="deadline-exceeded"||code==="auth/network-request-failed"){\\n        applyRegistration(null,true);',
+  "transient registration check must not change online display");
+app=replaceOnce(app,
+  '    const handleOffline=()=>applyRegistration(null);\\n    window.addEventListener("offline",handleOffline);\\n    return()=>{',
+  '    // Browser offline events do not revoke registration. The subscribed\\n    // Firebase approval check handles actual revocation, while temporary\\n    // network failures use the previously verified per-event approval.\\n    return()=>{',
+  "never revoke approval from offline browser event");
+app=replaceOnce(app,
+  '      unsubscribe?.();\\n      window.removeEventListener("offline",handleOffline);',
+  '      unsubscribe?.();',
+  "registration cleanup after removing offline listener");
+app=replaceOnce(app,
+  'try{ticket=await getLatestReceptionTicket(localEvent.event.eventId,ticketId);setOnline(canAttemptReceptionNetwork());}',
+  'try{ticket=await getLatestReceptionTicket(localEvent.event.eventId,ticketId);}',
+  "ticket read success is not a connectivity probe");
+app=replaceOnce(app,
+  '            setOnline(false);\\n            // A temporary network outage may still use the downloaded inventory.',
+  '            // A temporary network outage may still use the downloaded inventory.',
+  "ticket read timeout is not a network disconnection");
 writeFileSync(appPath,app);
 
 const queuePath=resolve(root,"syncQueue.ts");
