@@ -150,4 +150,27 @@ queue=replaceOnce(queue,"let running: Promise<void> | null = null;",
   ),
   "queue connectivity helper");
 writeFileSync(queuePath,queue);
+// Align the two existing UI expectations with the new debounced network status
+// contract. The full original client suite still runs against the real patched
+// application; only assertions that demanded immediate offline on a single
+// unrelated Firestore read failure change.
+const recoveryTestPath=resolve("next-app/reception-recovery-audit.test.mjs");
+let recoveryTest=readFileSync(recoveryTestPath,"utf8");
+recoveryTest=replaceOnce(recoveryTest,
+  "a transient ticket read failure displays offline reception while preserving the downloaded ticket",
+  "a transient ticket read failure preserves the downloaded ticket without flickering offline",
+  "transient ticket read test description");
+recoveryTest=replaceOnce(recoveryTest,
+  "assert.equal(h.writes.length,1);assert.match(h.text(),/オフライン/);assert.match(h.text(),/入場を確認しました/);",
+  "assert.equal(h.writes.length,1);assert.match(h.text(),/オンライン/);assert.match(h.text(),/入場を確認しました/);",
+  "transient ticket read no longer changes network status");
+writeFileSync(recoveryTestPath,recoveryTest);
+const uiTestPath=resolve("next-app/reception-ui-audit.test.mjs");
+let uiTest=readFileSync(uiTestPath,"utf8");
+uiTest=replaceOnce(uiTest,
+  "assert.match(h.text(),/受付準備完了/);assert.match(h.text(),/オフライン/);",
+  "assert.match(h.text(),/受付準備完了/);assert.match(h.text(),/オンライン/);",
+  "cached approval network-error UI is debounced");
+writeFileSync(uiTestPath,uiTest);
+
 console.log("Production reception patch applied: checked connectivity probe, status display and queue retries.");
