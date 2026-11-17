@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 1453manamana5-web/QR-Ticket-System
-          ref: 1403b6ee30b58904bb17ddea34eb0fdd66c52a11
+          ref: 91eecd4b835450e3e33f1bf58867331049ac5e5e
           path: next-app
       - uses: actions/setup-node@v4
         with:
